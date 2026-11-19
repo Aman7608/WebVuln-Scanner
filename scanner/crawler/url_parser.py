@@ -6,6 +6,7 @@ URL Parser - small helper functions for working with links.
   get_query_params()  reads the ?name=value parameters from a URL
 """
 
+import re
 from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
 # Files we do not need to crawl because they are not HTML pages
@@ -53,6 +54,37 @@ def is_crawlable_link(url):
     if parsed.scheme not in ("http", "https"):
         return False
     return not parsed.path.lower().endswith(SKIPPED_EXTENSIONS)
+
+
+# Finds strings in JavaScript code that look like paths on the same site,
+# for example "/rest/products/search?q=" or '/api/users'.
+JS_PATH_PATTERN = re.compile(
+    r"""["'`](/[A-Za-z0-9_\-][A-Za-z0-9_\-./]*(?:\?[A-Za-z0-9_\-=&%.]*)?)["'`]""")
+
+
+def extract_js_endpoints(js_code, page_url):
+    """Return full URLs for path-like strings found in JavaScript code.
+
+    The scanner does not RUN JavaScript. It only reads the code as text and
+    picks out strings that look like links or API addresses. Single-page apps
+    (React, Angular, Vue) keep most of their API addresses in their .js files.
+    """
+    found = []
+    for match in JS_PATH_PATTERN.finditer(js_code):
+        path = match.group(1)
+        if path.startswith("//") or len(path) < 3:
+            continue
+        full_url = urljoin(page_url, path)
+        if is_crawlable_link(full_url):
+            found.append(full_url)
+    return list(dict.fromkeys(found))  # remove duplicates, keep order
+
+
+def extract_script_sources(soup, page_url):
+    """Return (list of external script URLs, inline script text)."""
+    sources = [urljoin(page_url, tag["src"]) for tag in soup.find_all("script", src=True)]
+    inline = "\n".join(tag.string or "" for tag in soup.find_all("script", src=False))
+    return sources, inline
 
 
 def extract_links(soup, page_url):

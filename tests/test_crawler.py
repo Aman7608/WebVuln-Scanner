@@ -66,3 +66,16 @@ def test_crawl_respects_max_depth(handler, lab_url):
 def test_crawl_respects_max_pages(handler, lab_url):
     result = Crawler(handler, lab_url + "/", max_depth=5, max_pages=3).crawl()
     assert len(result.pages) == 3
+
+
+def test_js_endpoint_extraction():
+    from scanner.crawler.url_parser import extract_js_endpoints
+    code = 'const a = "/api/items?search="; fetch(`/rest/basket`); x = "//cdn.x.com/y"; r = /ab+c/g; img="/logo.png"'
+    assert extract_js_endpoints(code, "http://site/") == [
+        "http://site/api/items?search=", "http://site/rest/basket"]
+
+
+def test_crawler_finds_api_hidden_in_javascript(handler, lab_url):
+    result = Crawler(handler, lab_url + "/shop", max_depth=1, max_pages=10).crawl()
+    assert lab_url + "/static/shop.js" in result.scripts
+    assert ("GET", lab_url + "/api/items") in {(p.method, p.url) for p in result.injection_points}

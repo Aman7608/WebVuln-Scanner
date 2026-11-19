@@ -10,6 +10,10 @@ It works like a breadth-first search (BFS):
 The crawler only READS pages. It never submits forms - the vulnerability
 scanners do that later, in a controlled way.
 
+It also reads the page's JavaScript files as text and picks out strings that
+look like paths (e.g. "/api/search?q="), so API endpoints of JavaScript-heavy
+sites are found too. It does NOT run the JavaScript.
+
 At the end it returns "injection points": every place where the website
 accepts input (URL parameters and form fields). The scanners test those.
 """
@@ -23,7 +27,8 @@ from bs4 import BeautifulSoup
 
 from scanner.crawler.form_parser import parse_forms
 from scanner.crawler.url_parser import (
-    extract_links, get_query_params, normalize_url, url_without_query,
+    extract_js_endpoints, extract_links, extract_script_sources, get_query_params,
+    normalize_url, url_without_query,
 )
 from scanner.engine.request_handler import RequestLimitReached
 from scanner.target_manager import is_in_scope
@@ -50,22 +55,35 @@ class CrawlResult:
     pages: list = field(default_factory=list)            # dicts: url, status_code, depth
     forms: list = field(default_factory=list)            # Form objects
     injection_points: list = field(default_factory=list)
+    scripts: list = field(default_factory=list)          # JavaScript files that were read
+
+
+# Limits for reading JavaScript files, so huge bundles do not slow the scan down
+MAX_SCRIPTS = 15
+MAX_SCRIPT_BYTES = 3_000_000
 
 
 class Crawler:
     def __init__(self, request_handler, start_url, max_depth=2, max_pages=30,
-                 progress_callback=None):
+                 progress_callback=None, extra_start_urls=None):
         self.request_handler = request_handler
         self.start_url = start_url
         self.max_depth = max_depth
         self.max_pages = max_pages
         self.progress_callback = progress_callback  # optional: tells the UI how far we are
+        # e.g. the page we land on after logging in, which the public pages may not link to
+        self.extra_start_urls = [u for u in (extra_start_urls or []) if is_in_scope(u, start_url)]
 
     def crawl(self):
         result = CrawlResult()
         queue = deque([(self.start_url, 0)])
         seen_urls = {normalize_url(self.start_url)}
+        for extra_url in self.extra_start_urls:
+            if normalize_url(extra_url) not in seen_urls:
+                seen_urls.add(normalize_url(extra_url))
+                queue.append((extra_url, 0))
         seen_points = set()
+        seen_scripts = set()
 
         while queue and len(result.pages) < self.max_pages:
             url, depth = queue.popleft()
@@ -97,6 +115,7 @@ class Crawler:
             if "html" in content_type.lower():
                 soup = BeautifulSoup(response.text, "html.parser")
                 new_links.extend(extract_links(soup, url))
+                new_links.extend(self._links_from_javascript(soup, url, seen_scripts, result))
 
                 for form in parse_forms(soup, url):
                     if not is_in_scope(form.action, self.start_url):
@@ -121,6 +140,32 @@ class Crawler:
         logger.info("Crawl finished: %d pages, %d forms, %d injection points",
                     len(result.pages), len(result.forms), len(result.injection_points))
         return result
+
+    def _links_from_javascript(self, soup, page_url, seen_scripts, result):
+        """Read the page's JavaScript (inline and .js files) and pick out URLs.
+
+        Endpoints with parameters (like /api/search?q=) are put first because
+        those are the ones the vulnerability scanners can test.
+        """
+        script_urls, inline_code = extract_script_sources(soup, page_url)
+        endpoints = extract_js_endpoints(inline_code, page_url)
+
+        for script_url in script_urls:
+            if (script_url in seen_scripts or len(seen_scripts) >= MAX_SCRIPTS
+                    or not is_in_scope(script_url, self.start_url)):
+                continue
+            seen_scripts.add(script_url)
+            response = self.request_handler.get(script_url)
+            if response is None or response.status_code != 200:
+                continue
+            if len(response.content) > MAX_SCRIPT_BYTES:
+                logger.info("Skipped large script %s (%d bytes)", script_url, len(response.content))
+                continue
+            result.scripts.append(script_url)
+            endpoints.extend(extract_js_endpoints(response.text, page_url))
+
+        endpoints = list(dict.fromkeys(endpoints))
+        return sorted(endpoints, key=lambda link: "?" not in link)
 
     @staticmethod
     def _add_point(result, seen_points, point):
