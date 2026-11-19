@@ -3,14 +3,20 @@
 A beginner-friendly web application vulnerability scanner written in Python and Flask.
 
 You give it the URL of a website you are allowed to test. It crawls the site, finds the pages, forms and
-URL parameters, and then checks them for common security problems: reflected XSS, SQL injection, open
-redirects, missing security headers and exposed files. Everything is saved in a SQLite database, shown on a
-dark web dashboard, and can be exported as an HTML or PDF report.
+URL parameters (also API addresses hidden in JavaScript files), and then checks them for common security
+problems: reflected and stored XSS, SQL injection (error, boolean and time-based), open redirects, missing
+security headers and exposed files. It can log in first to test pages behind a login. Everything is saved
+in a SQLite database, shown on a dark web dashboard, and can be exported as an HTML or PDF report.
+
+It has been tested against its own vulnerable test lab, **DVWA** and **OWASP Juice Shop**
+(see [Results on DVWA and Juice Shop](#results-on-dvwa-and-juice-shop)).
 
 I built this project to learn how scanners like OWASP ZAP work on the inside. It is meant for learning
 and for testing your own apps, not for replacing professional tools.
 
-![Dashboard](docs/screenshots/dashboard.png)
+![Demo: starting a scan with login, live progress, results and the HTML report](docs/demo.gif)
+
+*Demo: a scan of the local test lab with login and stored XSS turned on (about 30 seconds of real time).*
 
 ---
 
@@ -20,8 +26,12 @@ and for testing your own apps, not for replacing professional tools.
 |---|---|
 | **Target management** | Validates the URL (http/https only), only allows hosts on an allowlist, blocks private/internal IPs that are not allowlisted, always blocks cloud metadata IPs, and limits timeouts and requests |
 | **Web crawler** | Finds pages by following links (same site only), reads forms and input fields, collects URL parameters, skips duplicates, stops at a max depth and max page count |
-| **XSS detection** | Sends a harmless, random marker and checks if it turns into a real HTML tag or attribute. Escaped output is *not* reported |
-| **SQL injection detection** | Error-based (looks for database error messages, then confirms) and boolean-based (compares "always true" and "always false" pages). Never sends destructive SQL |
+| **JavaScript endpoint discovery** | Reads the site's `.js` files as text and picks out API paths like `/rest/products/search?q=` (also inside template strings), so single-page apps such as Juice Shop can be tested |
+| **Login support** | Logs in through the site's login form (keeps hidden CSRF tokens) or uses a pasted session cookie. Starts crawling from the page after login. The password is never saved |
+| **Excluded paths** | URLs containing words like `logout`, `reset` or `delete` are never requested, so the scan can't log itself out or wipe data |
+| **Reflected XSS** | Sends a harmless, random marker and checks if it turns into a real HTML tag or attribute. Escaped output is *not* reported |
+| **Stored XSS** (opt-in) | Submits a unique marker into every form field, then reloads the pages and checks if a marker now shows up as a real tag |
+| **SQL injection detection** | Error-based (database error messages, then confirms), boolean-based ("always true" vs "always false" pages) and time-based blind (`SLEEP`/`pg_sleep`, confirmed twice). Never sends destructive SQL |
 | **Open redirect detection** | Tests redirect-like parameters with `https://example.com/...` and reads the `Location` header without following it |
 | **Security header analyzer** | Checks CSP, X-Frame-Options, HSTS, X-Content-Type-Options, Referrer-Policy (missing **and** weak values) and version leaks in `Server` / `X-Powered-By` |
 | **Directory discovery** | Checks about 30 common paths (`/.env`, `/.git/HEAD`, `/admin/`, `/backup/` ...), records every status code, detects "soft 404" pages and hides secrets in the evidence |
@@ -58,15 +68,17 @@ flowchart TD
     Engine --> Crawler[crawler/crawler.py<br/>pages, forms, parameters]
     Crawler --> UP[url_parser.py]
     Crawler --> FP[form_parser.py]
+    Engine --> Auth[auth.py<br/>optional login / cookie]
     Engine --> Mods{Vulnerability modules}
     Mods --> XSS[xss_scanner.py]
+    Mods --> SXSS[stored_xss_scanner.py]
     Mods --> SQLI[sqli_scanner.py]
     Mods --> RED[redirect_scanner.py]
     Mods --> HDR[header_analyzer.py]
     Mods --> DIR[directory_scanner.py]
-    Crawler & XSS & SQLI & RED & HDR & DIR -->|every HTTP request| RH[request_handler.py<br/>scope check, timeout, limit, delay]
+    Crawler & Auth & XSS & SXSS & SQLI & RED & HDR & DIR -->|every HTTP request| RH[request_handler.py<br/>scope, exclusions, timeout, limit, delay]
     RH -->|HTTP| Target[(Target website)]
-    XSS & SQLI & RED & HDR & DIR -->|Finding objects| FC[findings_collector.py]
+    XSS & SXSS & SQLI & RED & HDR & DIR -->|Finding objects| FC[findings_collector.py]
     FC --> RA[risk_assessment.py<br/>severity formula]
     Engine -->|save results + progress| DB[(SQLite<br/>database/db.py)]
     Routes -->|read results| DB
@@ -98,17 +110,19 @@ WebVuln Scanner/
 │   ├── target_manager.py       # URL validation, allowlist, private IP blocking, scope check
 │   ├── crawler/
 │   │   ├── crawler.py          # breadth-first crawler, builds injection points
-│   │   ├── url_parser.py       # normalize URLs, extract links, read parameters
+│   │   ├── url_parser.py       # normalize URLs, extract links/JS endpoints, read parameters
 │   │   └── form_parser.py      # find forms and their fields
 │   ├── vulnerabilities/
 │   │   ├── xss_scanner.py
-│   │   ├── sqli_scanner.py
+│   │   ├── stored_xss_scanner.py
+│   │   ├── sqli_scanner.py     # error, boolean and time-based
 │   │   ├── redirect_scanner.py
 │   │   ├── header_analyzer.py
 │   │   └── directory_scanner.py
 │   ├── engine/
 │   │   ├── scan_engine.py      # runs all steps, saves progress and results
-│   │   └── request_handler.py  # the only place that sends HTTP requests
+│   │   ├── auth.py             # form login and session cookies
+│   │   └── request_handler.py  # the only place that sends HTTP requests (scope, limits, exclusions)
 │   └── analysis/
 │       ├── findings_collector.py
 │       └── risk_assessment.py
@@ -124,7 +138,7 @@ WebVuln Scanner/
 ├── static/css, static/js       # dark theme + progress/filter scripts
 ├── test_lab/vulnerable_app.py  # deliberately vulnerable site for testing (127.0.0.1 only)
 ├── tests/                      # pytest test suite
-└── docs/screenshots/
+└── docs/                       # demo.gif and screenshots
 ```
 
 **Changes from the first plan:** I added `test_lab/` (a local vulnerable site, so testing never needs the
@@ -145,6 +159,11 @@ BeautifulSoup parses the response:
 
 A second payload, `marker" markera="1`, checks if a quote can break out of an HTML attribute.
 
+**Stored XSS (opt-in).** Each form field gets its own marker, for example `wvsab12cd"'><wvsab12cdx>`.
+After all forms are sent, the crawled pages are loaded again *without* any test input. If a marker now
+appears as a real tag, the site saved it and shows it to every visitor. This module is off by default,
+because it really saves data (like a guestbook entry) on the site.
+
 **SQL injection.**
 - *Error-based:* add `'` to the value. If a database error appears (MySQL, PostgreSQL, SQLite, MSSQL and
   Oracle patterns) that wasn't on the normal page, confirm it: `''` (an escaped quote) should make the error
@@ -152,6 +171,10 @@ A second payload, `marker" markera="1`, checks if a quote can break out of an HT
 - *Boolean-based:* compare the normal page with `1 AND 1=1` (always true) and `1 AND 1=2` (always false).
   True looks normal and false looks different: **Medium**. The page is loaded twice first, so pages that
   change on their own are skipped.
+- *Time-based blind:* used when the page looks the same whatever happens (blind SQLi). The scanner sends
+  `1 AND SLEEP(3)` (MySQL) or `1 AND 1=(SELECT 1 FROM PG_SLEEP(3))` (PostgreSQL). It reports only if the
+  page is about 3 s slower, the same payload with `SLEEP(0)` is fast again, and a second slow try is slow
+  too. That last check rules out a slow network.
 - Only read-only test inputs are used. No `DROP`, `DELETE`, `UPDATE`, `INSERT` or stacked queries.
 
 **Open redirect.** Only parameters with redirect-style names (`url`, `next`, `redirect`, `goto` ...) or
@@ -227,16 +250,44 @@ python app.py
 If an allowlisted name points to a private IP (like `10.0.0.5`), you must allowlist that IP too. Cloud
 metadata addresses (`169.254.169.254`) are always blocked.
 
-**Testing with OWASP Juice Shop or DVWA.** If you have Docker:
+**Scanning a site behind a login.** Open the *Login (optional)* box on the New Scan page and enter the
+login page URL plus a **test** username and password, or paste a session cookie copied from your browser.
+For the test lab, use `http://127.0.0.1:5001/account/login` with `tester` / `lab-password`.
+
+---
+
+## Results on DVWA and Juice Shop
+
+Both run locally in Docker. They only listen on `127.0.0.1`, so nobody else on your network can reach them.
 
 ```powershell
-docker run --rm -p 127.0.0.1:3000:3000 bkimminich/juice-shop
-docker run --rm -p 127.0.0.1:8080:80 vulnerables/web-dvwa
+docker run -d --name wvs-juice -p 127.0.0.1:3000:3000 bkimminich/juice-shop
+docker run -d --name wvs-dvwa -p 127.0.0.1:8081:80 vulnerables/web-dvwa
 ```
 
-Then scan `http://127.0.0.1:3000/` or `http://127.0.0.1:8080/`. Note: Juice Shop is a JavaScript
-single-page app, so this crawler (which doesn't run JavaScript) only sees a few pages. DVWA needs a
-login, which this scanner doesn't support yet (see Limitations).
+**DVWA** (http://127.0.0.1:8081). First open `/setup.php` and click *Create / Reset Database*. Then scan
+`http://127.0.0.1:8081/` with:
+- Login page `http://127.0.0.1:8081/login.php`, user `admin`, password `password` (DVWA's default test account)
+- add `security` to the excluded paths, so the scan doesn't change DVWA's security level halfway through
+- Stored XSS ticked
+
+Result (security level *low*, 27 pages, 368 requests, about 30 seconds), all real DVWA vulnerabilities:
+
+| Severity | Finding | Where |
+|---|---|---|
+| Critical | SQL injection (error-based) | `/vulnerabilities/sqli/` `id`, `/vulnerabilities/brute/` `username` |
+| Critical | SQL injection (time-based blind) | `/vulnerabilities/sqli_blind/` `id` |
+| Critical | Stored XSS | `/vulnerabilities/xss_s/` `mtxMessage` |
+| High | Reflected XSS | `/vulnerabilities/xss_r/` `name`, `/sqli/` `id`, `/brute/` `username`, `/xss_s/`, `/csp/` `include` |
+| Medium | Exposed `phpinfo.php`, missing CSP / X-Frame-Options, plain HTTP | |
+
+Not found (expected): DOM XSS (`/xss_d/`), command injection, file inclusion, CSRF and file upload. This
+scanner has no checks for those.
+
+**Juice Shop** (http://127.0.0.1:3000). Juice Shop is an Angular single-page app, so the normal links only
+lead to one page. The JavaScript endpoint discovery found 80 API paths in `main.js`, including
+`/rest/products/search?q=`. The scanner reported the well-known **SQL injection in the product search**
+(`q=1'` returns `SQLITE_ERROR`) as Critical / High confidence, plus missing CSP and plain HTTP.
 
 ---
 
@@ -262,8 +313,12 @@ The tests start the vulnerable lab on a random port automatically, so no interne
 is needed. They check:
 
 - URL validation, allowlist, private IP and metadata IP blocking, scope check, request limit
-- crawling: links, forms, parameters, no duplicates, max depth, max pages, no external links
-- XSS, SQLi and open redirect: **detected** on the vulnerable pages and **not reported** on the safe twin pages
+- crawling: links, forms, parameters, no duplicates, max depth, max pages, no external links,
+  API paths found in JavaScript (normal strings and template strings)
+- login with a CSRF-protected form, wrong passwords, cookies, excluded paths (the scan never logs itself
+  out), and that the password is never stored in the database, results page or report
+- reflected XSS, stored XSS, SQLi (error, boolean, time-based, and in a JSON API) and open redirect:
+  **detected** on the vulnerable pages and **not reported** on the safe twin pages
 - security headers with fake responses (missing, weak, and secure cases)
 - directory discovery, status codes and secret hiding
 - risk scores and severity levels
@@ -275,10 +330,15 @@ is needed. They check:
 
 ## Limitations
 
-- **No JavaScript rendering.** Single-page apps (React, Angular, Juice Shop) are mostly invisible to the crawler.
-- **No login support.** Pages behind a login form are not scanned.
-- **Reflected XSS only.** Stored and DOM-based XSS are not detected.
-- **No time-based blind SQL injection**, and boolean-based results can still be false positives on unusual pages.
+- **JavaScript is read, not run.** The crawler finds API paths written in `.js` files, but it doesn't run a
+  real browser. URLs that are built step by step at runtime, and POST/JSON APIs, are not found. That's why
+  only 1 of Juice Shop's many bugs was found.
+- **DOM-based XSS is not detected** (that needs a real browser too).
+- **Login works with normal login forms and cookies.** Multi-step logins, CAPTCHAs, 2FA and "Sign in with
+  Google" style logins are not supported. Use the cookie field for those.
+- **Time-based SQLi covers MySQL/MariaDB and PostgreSQL.** SQL Server would need a stacked query, which is
+  never sent on purpose. Boolean-based results can still be false positives on unusual pages.
+- **Stored XSS** is only checked on pages the crawler visited, and it really writes data, so it's opt-in.
 - **Small path list** for directory discovery, on purpose. This is not a brute-forcer.
 - **Forms are really submitted** during testing (for example the login and contact forms). On a real
   app this can create log entries, emails or database rows. Only scan test environments.
@@ -288,8 +348,8 @@ is needed. They check:
 
 ## Future improvements
 
-- Login/session support (cookie or form login before crawling)
-- Stored XSS and time-based SQL injection checks
+- Optional headless-browser crawling (for example Playwright) for JavaScript apps and DOM XSS
+- Testing JSON/POST APIs found in JavaScript
 - A cancel button for running scans
 - Export findings as JSON/CSV
 - Optional headless browser crawling for JavaScript-heavy sites
