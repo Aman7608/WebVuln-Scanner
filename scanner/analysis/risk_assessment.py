@@ -37,6 +37,7 @@ RISK_RATINGS = {
     "exposed_resource":     (3, 3),  # admin pages, backups, directory listings
     "missing_csp":          (3, 2),  # no extra protection layer against XSS
     "missing_xfo":          (3, 2),  # page can be framed (clickjacking)
+    "no_https":             (3, 2),  # traffic can be read or changed on the network
     "missing_hsts":         (2, 2),  # first visit can be downgraded to HTTP
     "missing_xcto":         (2, 2),  # browser may guess (sniff) file types
     "weak_header":          (2, 2),  # header exists but is set unsafely
