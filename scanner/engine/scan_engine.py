@@ -82,7 +82,7 @@ def run_scan(db_path, scan_id, target_url, config):
     note = "Finished"
 
     def progress(percent, step):
-        db.update_progress(db_path, scan_id, percent, step)
+        db.update_progress(db_path, scan_id, percent, step, handler.request_count)
 
     try:
         # Check the target again right before scanning (DNS could have changed)

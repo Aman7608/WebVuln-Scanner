@@ -38,7 +38,7 @@ function updateProgress(scan) {
   document.getElementById("progress-percent").textContent = scan.progress + "%";
   document.getElementById("progress-step").textContent = scan.current_step || "Starting…";
   document.getElementById("progress-counts").textContent =
-    `${scan.pages_found || 0} pages saved · ${scan.requests_sent || 0} requests`;
+    `${scan.requests_sent || 0} requests sent so far`;
 }
 
 async function pollScan(scanId) {

@@ -62,11 +62,11 @@ def create_scan(db_path, target_id, config):
         return cursor.lastrowid
 
 
-def update_progress(db_path, scan_id, progress, step):
+def update_progress(db_path, scan_id, progress, step, requests_sent=0):
     with connect(db_path) as conn:
         conn.execute(
-            "UPDATE scans SET status = ?, progress = ?, current_step = ? WHERE id = ?",
-            (STATUS_RUNNING, int(progress), step, scan_id))
+            "UPDATE scans SET status = ?, progress = ?, current_step = ?, requests_sent = ? WHERE id = ?",
+            (STATUS_RUNNING, int(progress), step, requests_sent, scan_id))
 
 
 def finish_scan(db_path, scan_id, pages_found, requests_sent, error_message="", note="Finished"):
