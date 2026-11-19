@@ -1,0 +1,32 @@
+# Python virtual environment
+venv/
+.venv/
+env/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Database files (scan data can contain sensitive information)
+instance/
+*.db
+*.sqlite
+*.sqlite3
+
+# Generated reports
+generated_reports/
+
+# Secrets and local settings
+.env
+*.key
+
+# Logs and temporary files
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+
+# Editor folders
+.vscode/
+.idea/
