@@ -82,5 +82,17 @@ class RequestHandler:
     def get(self, url, params=None):
         return self.send("GET", url, params=params)
 
+    def send_payload(self, point, param_name, value):
+        """Send a request to an injection point with ONE parameter changed.
+
+        All the other parameters keep their normal values, so the page works
+        as usual and only the parameter we are testing is different.
+        """
+        values = dict(point.params)
+        values[param_name] = value
+        if point.method == "POST":
+            return self.send("POST", point.url, data=values)
+        return self.send("GET", point.url, params=values)
+
     def close(self):
         self.session.close()

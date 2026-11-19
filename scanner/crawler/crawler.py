@@ -39,6 +39,10 @@ class InjectionPoint:
     params: dict         # every parameter with its normal value
     source: str          # "url" (query string) or "form"
     page_url: str        # page where it was found
+    test_params: list = field(default_factory=list)  # which params to test (empty = all)
+
+    def testable_params(self):
+        return self.test_params or list(self.params)
 
 
 @dataclass
@@ -101,7 +105,8 @@ class Crawler:
                     if form.text_fields():
                         self._add_point(result, seen_points, InjectionPoint(
                             form.method, url_without_query(form.action),
-                            form.default_values(), "form", url))
+                            form.default_values(), "form", url,
+                            test_params=form.text_fields()))
 
             if depth >= self.max_depth:
                 continue
