@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}New Scan{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>New Scan</h1>
+    <p class="dim">Enter a target you are allowed to test, choose the checks, and start.</p>
+  </div>
+</div>
+
+<form id="scan-form" class="card form" novalidate>
+  <label class="field">
+    <span>Target URL</span>
+    <input type="url" id="target_url" name="target_url" placeholder="http://127.0.0.1:5001/" required autocomplete="off">
+    <small class="dim">Allowed hosts: {% for host in allowed_hosts %}<code>{{ host }}</code>{% if not loop.last %}, {% endif %}{% endfor %}.
+      Change them in <code>config/settings.py</code> or the <code>WEBVULN_ALLOWED_HOSTS</code> variable.</small>
+  </label>
+
+  <fieldset class="field">
+    <legend>Scan modules</legend>
+    <div class="checks">
+      {% for key, label in modules.items() %}
+      <label class="check"><input type="checkbox" name="modules" value="{{ key }}" checked> {{ label }}</label>
+      {% endfor %}
+    </div>
+  </fieldset>
+
+  <fieldset class="field">
+    <legend>Limits</legend>
+    <div class="grid">
+      <label><span>Max crawl depth</span>
+        <input type="number" name="max_depth" min="0" max="{{ limits.max_depth }}" value="{{ defaults.max_depth }}"></label>
+      <label><span>Max pages</span>
+        <input type="number" name="max_pages" min="1" max="{{ limits.max_pages }}" value="{{ defaults.max_pages }}"></label>
+      <label><span>Request timeout (s)</span>
+        <input type="number" name="timeout" min="1" max="{{ limits.timeout }}" value="{{ defaults.timeout }}"></label>
+      <label><span>Max requests</span>
+        <input type="number" name="max_requests" min="10" max="{{ limits.max_requests }}" value="{{ defaults.max_requests }}"></label>
+      <label><span>Delay between requests (s)</span>
+        <input type="number" name="delay" min="0" max="{{ limits.delay }}" step="0.05" value="{{ defaults.delay }}"></label>
+    </div>
+  </fieldset>
+
+  <label class="check authorize">
+    <input type="checkbox" id="authorized" name="authorized">
+    I own this target or have written permission to test it.
+  </label>
+
+  <div id="form-error" class="alert alert-error" hidden></div>
+  <button type="submit" class="btn btn-big" id="start-button">Start scan</button>
+</form>
+
+<section id="progress-card" class="card" hidden>
+  <h2>Scan in progress</h2>
+  <p class="mono" id="progress-target"></p>
+  <div class="progress"><div class="progress-fill" id="progress-fill"></div></div>
+  <div class="progress-info">
+    <span id="progress-step">Starting…</span>
+    <span id="progress-percent">0%</span>
+  </div>
+  <p class="dim" id="progress-counts"></p>
+</section>
+{% endblock %}
+
+{% block scripts %}<script src="{{ url_for('static', filename='js/scan.js') }}"></script>{% endblock %}

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Dashboard{% endblock %} · WebVuln Scanner</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="{{ url_for('dashboard.index') }}">
+      <span class="brand-mark">&#x2B22;</span> WebVuln<span class="brand-dim">Scanner</span>
+    </a>
+    <nav>
+      {% set path = request.path %}
+      <a href="{{ url_for('dashboard.index') }}" class="{{ 'active' if path == '/' }}">Dashboard</a>
+      <a href="{{ url_for('dashboard.new_scan') }}" class="{{ 'active' if path == '/scan' }}">New Scan</a>
+      <a href="{{ url_for('dashboard.history') }}" class="{{ 'active' if path.startswith('/history') or path.startswith('/scans') }}">History</a>
+    </nav>
+  </header>
+
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="footer">
+    Only scan websites you own or have written permission to test.
+  </footer>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

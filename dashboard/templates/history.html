@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% from "_macros.html" import scans_table %}
+{% block title %}Scan History{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Scan History</h1>
+    <p class="dim">All previous scans, newest first.</p>
+  </div>
+  <a class="btn" href="{{ url_for('dashboard.new_scan') }}">+ New Scan</a>
+</div>
+<section class="card">
+  {{ scans_table(scans) }}
+</section>
+{% endblock %}

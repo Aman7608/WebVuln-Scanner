@@ -1,0 +1,39 @@
+{# Small reusable pieces of HTML used by several pages #}
+
+{% macro status_badge(status) -%}
+  <span class="status status-{{ status }}">{{ status }}</span>
+{%- endmacro %}
+
+{% macro severity_badge(severity) -%}
+  <span class="sev sev-{{ severity|lower }}">{{ severity }}</span>
+{%- endmacro %}
+
+{% macro scans_table(scans) -%}
+  {% if scans %}
+  <div class="table-wrap">
+  <table class="table">
+    <thead>
+      <tr><th>#</th><th>Target</th><th>Started</th><th>Status</th><th>Pages</th><th>Findings</th><th></th></tr>
+    </thead>
+    <tbody>
+    {% for scan in scans %}
+      <tr>
+        <td class="mono dim">{{ scan.id }}</td>
+        <td class="mono">{{ scan.target_url }}</td>
+        <td class="dim">{{ scan.started_at }}</td>
+        <td>{{ status_badge(scan.status) }}</td>
+        <td>{{ scan.pages_found }}</td>
+        <td>{{ scan.finding_count }}</td>
+        <td><a class="link" href="{{ url_for('dashboard.results', scan_id=scan.id) }}">Open &rarr;</a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <div class="empty">
+    <p>No scans yet.</p>
+    <a class="btn" href="{{ url_for('dashboard.new_scan') }}">Start your first scan</a>
+  </div>
+  {% endif %}
+{%- endmacro %}

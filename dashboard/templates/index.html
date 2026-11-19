@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% from "_macros.html" import scans_table %}
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Dashboard</h1>
+    <p class="dim">Overview of every scan stored in the local database.</p>
+  </div>
+  <a class="btn" href="{{ url_for('dashboard.new_scan') }}">+ New Scan</a>
+</div>
+
+<section class="stats">
+  <div class="stat"><span class="stat-label">Total scans</span><span class="stat-value">{{ stats.total_scans }}</span></div>
+  <div class="stat"><span class="stat-label">Total findings</span><span class="stat-value">{{ stats.total_findings }}</span></div>
+  <div class="stat stat-critical"><span class="stat-label">Critical</span><span class="stat-value">{{ stats.count_critical }}</span></div>
+  <div class="stat stat-high"><span class="stat-label">High</span><span class="stat-value">{{ stats.count_high }}</span></div>
+  <div class="stat stat-medium"><span class="stat-label">Medium</span><span class="stat-value">{{ stats.count_medium }}</span></div>
+  <div class="stat stat-low"><span class="stat-label">Low + Info</span><span class="stat-value">{{ stats.count_low + stats.count_informational }}</span></div>
+</section>
+
+{% if stats.total_findings %}
+<section class="card">
+  <h2>Severity distribution (all scans)</h2>
+  <div class="dist-bar" aria-label="Severity distribution">
+    {% for level in ['critical', 'high', 'medium', 'low', 'informational'] %}
+      {% set count = stats['count_' ~ level] %}
+      {% if count %}<span class="dist-seg sev-bg-{{ level }}" data-share="{{ count }}" title="{{ level|capitalize }}: {{ count }}"></span>{% endif %}
+    {% endfor %}
+  </div>
+  <div class="legend">
+    {% for level in ['critical', 'high', 'medium', 'low', 'informational'] %}
+      <span><i class="dot sev-bg-{{ level }}"></i>{{ level|capitalize }} {{ stats['count_' ~ level] }}</span>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<section class="card">
+  <div class="card-head">
+    <h2>Recent scan activity</h2>
+    {% if recent_scans %}<a class="link" href="{{ url_for('dashboard.history') }}">View all &rarr;</a>{% endif %}
+  </div>
+  {{ scans_table(recent_scans) }}
+</section>
+{% endblock %}
+
+{% block scripts %}<script src="{{ url_for('static', filename='js/main.js') }}"></script>{% endblock %}

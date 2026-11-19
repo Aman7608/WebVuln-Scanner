@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status_badge, severity_badge %}
+{% block title %}Scan #{{ scan.id }}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Scan #{{ scan.id }} {{ status_badge(scan.status) }}</h1>
+    <p class="mono">{{ scan.target_url }}</p>
+  </div>
+  {% if scan.status in ('completed', 'failed') %}
+  <div class="actions">
+    <a class="btn btn-ghost" href="{{ url_for('dashboard.html_report', scan_id=scan.id) }}" target="_blank" rel="noopener">View HTML report</a>
+    <a class="btn btn-ghost" href="{{ url_for('dashboard.html_report', scan_id=scan.id, download=1) }}">Download HTML</a>
+    <a class="btn" href="{{ url_for('dashboard.pdf_report', scan_id=scan.id) }}">Download PDF</a>
+  </div>
+  {% endif %}
+</div>
+
+{% if scan.status in ('pending', 'running') %}
+<section class="card" id="live-progress" data-scan-id="{{ scan.id }}">
+  <h2>Scan in progress</h2>
+  <div class="progress"><div class="progress-fill" id="progress-fill" data-progress="{{ scan.progress }}"></div></div>
+  <div class="progress-info"><span id="progress-step">{{ scan.current_step or 'Starting…' }}</span><span id="progress-percent">{{ scan.progress }}%</span></div>
+  <p class="dim">This page reloads automatically when the scan finishes.</p>
+</section>
+{% else %}
+
+{% if scan.error_message %}
+<div class="alert alert-error"><strong>Scan failed:</strong> {{ scan.error_message }}</div>
+{% elif scan.current_step and scan.current_step != 'Finished' %}
+<div class="alert alert-warn">{{ scan.current_step }}. Results below are partial.</div>
+{% endif %}
+
+<section class="stats">
+  <div class="stat"><span class="stat-label">Pages discovered</span><span class="stat-value">{{ scan.pages_found }}</span></div>
+  <div class="stat"><span class="stat-label">Findings</span><span class="stat-value">{{ findings|length }}</span></div>
+  {% for level in ['Critical', 'High', 'Medium', 'Low', 'Informational'] %}
+  <div class="stat stat-{{ level|lower }}"><span class="stat-label">{{ level }}</span><span class="stat-value">{{ counts[level] }}</span></div>
+  {% endfor %}
+</section>
+
+<section class="card meta">
+  <div><span class="dim">Started</span> {{ scan.started_at }}</div>
+  <div><span class="dim">Finished</span> {{ scan.finished_at or '-' }}</div>
+  <div><span class="dim">Requests sent</span> {{ scan.requests_sent }}</div>
+  <div><span class="dim">Depth / pages</span> {{ scan.config.max_depth }} / {{ scan.config.max_pages }}</div>
+  <div><span class="dim">Modules</span> {% for m in scan.config.modules %}{{ module_labels.get(m, m) }}{% if not loop.last %}, {% endif %}{% endfor %}</div>
+</section>
+
+<section class="card">
+  <div class="card-head">
+    <h2>Findings</h2>
+    {% if findings %}
+    <div class="filters" id="severity-filters">
+      <button type="button" class="chip active" data-filter="all">All</button>
+      {% for level in ['Critical', 'High', 'Medium', 'Low', 'Informational'] if counts[level] %}
+      <button type="button" class="chip" data-filter="{{ level|lower }}">{{ level }} ({{ counts[level] }})</button>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  {% for f in findings %}
+  <details class="finding" data-severity="{{ f.severity|lower }}">
+    <summary>
+      {{ severity_badge(f.severity) }}
+      <span class="finding-name">{{ f.name }}</span>
+      <span class="finding-url mono">{{ f.url }}{% if f.parameter %} <span class="param">[{{ f.parameter }}]</span>{% endif %}</span>
+      <span class="conf">Confidence: {{ f.confidence }}</span>
+    </summary>
+    <div class="finding-body">
+      <dl>
+        <dt>Affected URL</dt><dd class="mono">{{ f.url }}</dd>
+        {% if f.parameter %}<dt>Parameter / header</dt><dd class="mono">{{ f.parameter }}</dd>{% endif %}
+        <dt>Severity</dt><dd>{{ f.severity }} (risk score {{ f.risk_score }} / 25)</dd>
+        <dt>Confidence</dt><dd>{{ f.confidence }}</dd>
+        <dt>Description</dt><dd>{{ f.description }}</dd>
+        <dt>Evidence</dt><dd><pre>{{ f.evidence }}</pre></dd>
+        <dt>Recommended fix</dt><dd>{{ f.remediation }}</dd>
+      </dl>
+    </div>
+  </details>
+  {% else %}
+  <div class="empty"><p>No vulnerabilities were found with the selected checks.</p></div>
+  {% endfor %}
+</section>
+
+<section class="card">
+  <details>
+    <summary class="summary-title">Discovered URLs and checked paths ({{ urls|length }})</summary>
+    <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>Source</th><th>URL</th><th>Status</th><th>Depth</th></tr></thead>
+      <tbody>
+      {% for u in urls %}
+        <tr><td class="dim">{{ u.source }}</td><td class="mono">{{ u.url }}</td>
+            <td><span class="code code-{{ (u.status_code or 0) // 100 }}xx">{{ u.status_code }}</span></td>
+            <td class="dim">{{ u.depth if u.depth is not none else '-' }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </details>
+</section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}<script src="{{ url_for('static', filename='js/main.js') }}"></script>{% endblock %}
