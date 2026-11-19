@@ -45,3 +45,21 @@ def test_no_false_positive_on_safe_query(handler, lab_url):
     scan_sqli(handler, [point(lab_url, "/product-safe", {"id": "1"}),
                         point(lab_url, "/safe-search", {"q": "laptop"})], collector)
     assert collector.findings == []
+
+
+def test_detects_time_based_blind_sqli(handler, lab_url, monkeypatch):
+    # Use a 1 second delay so the test stays fast
+    monkeypatch.setattr("config.settings.SQLI_TIME_DELAY", 1)
+    collector = FindingsCollector()
+    scan_sqli(handler, [point(lab_url, "/order", {"id": "1"})], collector)
+    assert len(collector.findings) == 1
+    finding = collector.findings[0]
+    assert finding.name == "SQL Injection (time-based blind)"
+    assert finding.confidence == "High"
+    assert "SLEEP(1)" in finding.evidence
+
+
+def test_detects_sqli_in_json_api(handler, lab_url):
+    collector = FindingsCollector()
+    scan_sqli(handler, [point(lab_url, "/api/items", {"search": ""})], collector)
+    assert [f.parameter for f in collector.findings] == ["search"]

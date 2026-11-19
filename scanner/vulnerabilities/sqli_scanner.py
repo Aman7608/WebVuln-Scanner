@@ -21,12 +21,22 @@ stacked queries (; ...). Two methods are used:
    FALSE ("1 AND 1=2"). If the TRUE page looks like the normal page but the
    FALSE page is clearly different, the condition was run by the database.
    -> Medium confidence, because pages can change for other reasons.
+
+3. Time-based (only tried when the first two found nothing)
+   Some pages show exactly the same thing whatever happens in the database
+   ("blind" SQL injection). Then we ask the database to WAIT, for example
+   "1 AND SLEEP(3)". If the page takes about 3 seconds longer, and the same
+   payload with SLEEP(0) is fast again, the database ran our input.
+   We repeat the slow request to make sure it was not just a slow network.
+   Payloads exist for MySQL/MariaDB and PostgreSQL. SQL Server would need a
+   stacked query (; WAITFOR ...), which we do not send on purpose.
 """
 
 import difflib
 import logging
 import re
 
+from config import settings
 from scanner.analysis.findings_collector import Finding, short_snippet
 from scanner.engine.request_handler import RequestLimitReached
 
@@ -98,7 +108,9 @@ def check_parameter(handler, point, param, collector):
 
     if error_based_test(handler, point, param, original_value, baseline, collector):
         return
-    boolean_based_test(handler, point, param, original_value, baseline, collector)
+    if boolean_based_test(handler, point, param, original_value, baseline, collector):
+        return
+    time_based_test(handler, point, param, original_value, baseline, collector)
 
 
 def error_based_test(handler, point, param, original_value, baseline, collector):
@@ -181,4 +193,63 @@ def boolean_based_test(handler, point, param, original_value, baseline, collecto
                 description=DESCRIPTION, evidence=evidence, remediation=REMEDIATION,
             ))
             return True
+    return False
+
+
+# (database, payload) - {v} is the normal value, {d} the seconds to wait
+TIME_PAYLOADS = [
+    ("MySQL/MariaDB", "{v} AND SLEEP({d})"),
+    ("MySQL/MariaDB", "{v}' AND SLEEP({d}) AND '1'='1"),
+    ("PostgreSQL", "{v} AND 1=(SELECT 1 FROM PG_SLEEP({d}))"),
+    ("PostgreSQL", "{v}' AND 1=(SELECT 1 FROM PG_SLEEP({d})) AND '1'='1"),
+]
+
+
+def seconds(response):
+    """How long the server took to answer (requests measures this for us)."""
+    return response.elapsed.total_seconds()
+
+
+def time_based_test(handler, point, param, original_value, baseline, collector,
+                    delay=None):
+    delay = delay or settings.SQLI_TIME_DELAY
+    if handler.timeout < delay * 2 + 2:
+        return False  # the request would time out before we could measure the delay
+
+    second_baseline = handler.send_payload(point, param, original_value)
+    if second_baseline is None:
+        return False
+    normal_time = max(seconds(baseline), seconds(second_baseline))
+    if normal_time > 5:
+        return False  # the page is too slow to measure reliably
+
+    def extra_time(payload_template, wait):
+        response = handler.send_payload(point, param, payload_template.format(v=original_value, d=wait))
+        return None if response is None else seconds(response) - normal_time
+
+    for database, template in TIME_PAYLOADS:
+        slow = extra_time(template, delay)
+        if slow is None or slow < delay * 0.8:
+            continue
+        fast = extra_time(template, 0)              # same payload, no waiting
+        if fast is None or fast > delay * 0.5:
+            continue
+        slow_again = extra_time(template, delay)    # repeat to rule out a slow network
+        if slow_again is None or slow_again < delay * 0.8:
+            continue
+
+        evidence = (
+            f"Normal response time: {normal_time:.2f}s\n"
+            f"{param}={template.format(v=original_value, d=delay)} -> +{slow:.2f}s, "
+            f"again -> +{slow_again:.2f}s\n"
+            f"{param}={template.format(v=original_value, d=0)} -> +{fast:.2f}s\n"
+            f"Payload style: {database}"
+        )
+        collector.add(Finding(
+            name="SQL Injection (time-based blind)",
+            vuln_type="sql_injection",
+            url=point.url, parameter=param, confidence="High",
+            description=DESCRIPTION, evidence=evidence, remediation=REMEDIATION,
+        ))
+        return True
     return False
