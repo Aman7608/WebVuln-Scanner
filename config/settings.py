@@ -41,6 +41,15 @@ LIMIT_TIMEOUT = 30
 LIMIT_MAX_REQUESTS = 3000
 LIMIT_REQUEST_DELAY = 5
 
+# URLs containing any of these words are never requested. They are links
+# that could log us out or change/delete data on the test site.
+# You can edit this list on the New Scan page for each scan.
+DEFAULT_EXCLUDED_PATHS = ["logout", "logoff", "signout", "sign-out", "log-out",
+                          "delete", "remove", "reset", "setup"]
+
+# Seconds the time-based SQL injection test asks the database to wait
+SQLI_TIME_DELAY = 3
+
 # Text sent in the User-Agent header so server owners can see who is testing
 USER_AGENT = "WebVulnScanner/1.0 (authorized security testing)"
 

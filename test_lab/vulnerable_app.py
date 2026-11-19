@@ -13,18 +13,34 @@ Run it on its own with:
 and it will be available at http://127.0.0.1:5001
 """
 
+import json
 import sqlite3
+import threading
+import time
 from html import escape
 from urllib.parse import urlparse
 
-from flask import Flask, Response, redirect, request
+from flask import Flask, Response, redirect, request, session
 
 lab = Flask(__name__)
+# Fixed key is fine here: this lab is a local test toy, never a real app
+lab.secret_key = "test-lab-only-not-secret"
+
+# Test account for the login-protected area (used by the tests and the demo)
+LAB_USERNAME = "tester"
+LAB_PASSWORD = "lab-password"
+
+
+def sqlite_sleep(seconds):
+    """Lets the lab's SQLite understand SLEEP(n) like MySQL does (max 5 s)."""
+    time.sleep(min(float(seconds), 5))
+    return 0
 
 
 def make_database():
     """Create a tiny in-memory database with fake products and users."""
     connection = sqlite3.connect(":memory:", check_same_thread=False)
+    connection.create_function("SLEEP", 1, sqlite_sleep)
     connection.executescript(
         """
         CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT, price REAL);
@@ -32,12 +48,16 @@ def make_database():
                                     (3, 'Keyboard', 49.9);
         CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT, password TEXT);
         INSERT INTO users VALUES (1, 'admin', 'not-a-real-password');
+        CREATE TABLE orders (id INTEGER PRIMARY KEY, status TEXT);
+        INSERT INTO orders VALUES (1, 'shipped'), (2, 'packing');
         """
     )
     return connection
 
 
 DATABASE = make_database()
+DATABASE_LOCK = threading.Lock()   # one query at a time on the shared connection
+GUESTBOOK = []                     # stored guestbook entries (kept in memory)
 
 
 def page(title, body):
@@ -61,6 +81,10 @@ def home():
   <li><a href="/login">Login form</a></li>
   <li><a href="/contact">Contact form</a></li>
   <li><a href="/about">About</a></li>
+  <li><a href="/order?id=1">Order status (blind SQL injection)</a></li>
+  <li><a href="/guestbook">Guestbook (stored XSS)</a></li>
+  <li><a href="/account/login">Member area (needs login)</a></li>
+  <li><a href="/shop">Shop (JavaScript app)</a></li>
   <li><a href="https://example.com/external">External link (must not be crawled)</a></li>
   <li><a href="mailto:test@example.com">Email link</a></li>
 </ul>""")
@@ -189,6 +213,118 @@ def contact():
     return page("Contact", form)
 
 
+# ---------------- Blind (time-based) SQL injection ----------------
+@lab.route("/order")
+def order():
+    order_id = request.args.get("id", "1")
+    # BUG: string concatenation, but errors and results are hidden (blind)
+    sql = f"SELECT status FROM orders WHERE id = {order_id}"
+    try:
+        with DATABASE_LOCK:
+            DATABASE.execute(sql).fetchall()
+    except sqlite3.Error:
+        pass
+    # The page is always the same, so only timing can reveal the bug
+    return page("Order status", "<p>Thank you. Your order status has been checked.</p>")
+
+
+# ---------------- Stored XSS ----------------
+@lab.route("/guestbook", methods=["GET", "POST"])
+def guestbook():
+    if request.method == "POST":
+        GUESTBOOK.append((request.form.get("name", ""), request.form.get("message", "")))
+        del GUESTBOOK[:-50]  # keep only the last 50 entries
+        return redirect("/guestbook")
+    # BUG: saved entries are shown without escaping
+    entries = "".join(f"<li><b>{name}</b>: {message}</li>" for name, message in GUESTBOOK)
+    return page("Guestbook", f"""<ul>{entries}</ul>
+<form method="post">
+  <input type="text" name="name" value="">
+  <textarea name="message"></textarea>
+  <input type="submit" value="Sign">
+</form>""")
+
+
+# ---------------- Area behind a login ----------------
+@lab.route("/account/login", methods=["GET", "POST"])
+def account_login():
+    error = ""
+    if request.method == "POST":
+        # Hidden CSRF token, like many real login forms have
+        if request.form.get("csrf_token") != session.get("csrf_token"):
+            error = "<p>Invalid form token.</p>"
+        elif (request.form.get("user") == LAB_USERNAME
+              and request.form.get("pass") == LAB_PASSWORD):
+            session["user"] = LAB_USERNAME
+            return redirect("/account/home")
+        else:
+            error = "<p>Wrong username or password.</p>"
+    session["csrf_token"] = str(time.time_ns())
+    return page("Member login", f"""{error}
+<form method="post">
+  <input type="hidden" name="csrf_token" value="{session['csrf_token']}">
+  <input type="text" name="user" value="">
+  <input type="password" name="pass" value="">
+  <input type="submit" value="Log in">
+</form>""")
+
+
+@lab.route("/account/home")
+def account_home():
+    if session.get("user") != LAB_USERNAME:
+        return redirect("/account/login")
+    return page("Member area", """
+<p>Welcome back!</p>
+<p><a href="/account/notes?title=todo">My notes</a></p>
+<p><a href="/account/logout">Log out</a></p>""")
+
+
+@lab.route("/account/notes")
+def account_notes():
+    if session.get("user") != LAB_USERNAME:
+        return redirect("/account/login")
+    # BUG: reflected XSS that can only be found after logging in
+    return page("Notes", f"<p>Showing notes for: {request.args.get('title', '')}</p>")
+
+
+@lab.route("/account/logout")
+def account_logout():
+    session.clear()
+    return redirect("/")
+
+
+# ---------------- JavaScript app with a hidden API ----------------
+@lab.route("/shop")
+def shop():
+    # The page itself has no links - only the JavaScript knows the API address
+    return page("Shop", '<div id="app">Loading...</div><script src="/static/shop.js"></script>')
+
+
+@lab.route("/static/shop.js")
+def shop_js():
+    code = """
+const API = "/api/items?search=";
+fetch(API + "lamp").then(r => r.json()).then(items => {
+  document.getElementById("app").textContent = items.length + " items";
+});
+"""
+    return Response(code, mimetype="application/javascript")
+
+
+@lab.route("/api/items")
+def api_items():
+    term = request.args.get("search", "")
+    # BUG: SQL injection in a JSON API (like many single-page apps have)
+    sql = f"SELECT name FROM products WHERE name LIKE '%{term}%'"
+    try:
+        with DATABASE_LOCK:
+            rows = DATABASE.execute(sql).fetchall()
+    except sqlite3.Error as error:
+        return Response(json.dumps({"error": f"SQLITE_ERROR: {error}"}), status=500,
+                        mimetype="application/json")
+    return Response(json.dumps([name for (name,) in rows]), mimetype="application/json")
+
+
 # ---------------- Exposed files ----------------
 @lab.route("/.env")
 def dotenv():
@@ -209,7 +345,8 @@ def robots():
 
 def run_lab(port=5001):
     print(f"Vulnerable test lab running at http://127.0.0.1:{port} (do not expose it!)")
-    lab.run(host="127.0.0.1", port=port, debug=False)
+    # threaded=False: one request at a time, so the shared SQLite connection is safe
+    lab.run(host="127.0.0.1", port=port, debug=False, threaded=False)
 
 
 if __name__ == "__main__":
