@@ -46,3 +46,18 @@ def test_no_false_positive_on_escaped_page(handler, lab_url):
                        point(lab_url, "/contact", {"email": "", "message": "", "topic": "general"}, "POST")],
              collector)
     assert collector.findings == []
+
+
+def test_detects_stored_xss(handler, lab_url):
+    from scanner.vulnerabilities.stored_xss_scanner import scan_stored_xss
+    collector = FindingsCollector()
+    guestbook = InjectionPoint("POST", lab_url + "/guestbook", {"name": "", "message": ""},
+                               "form", lab_url + "/guestbook")
+    contact = InjectionPoint("POST", lab_url + "/contact", {"email": "", "message": "", "topic": "general"},
+                             "form", lab_url + "/contact", test_params=["email", "message"])
+    scan_stored_xss(handler, [guestbook, contact], [lab_url + "/", lab_url + "/guestbook"], collector)
+
+    found = {(f.url.replace(lab_url, ""), f.parameter) for f in collector.findings}
+    assert found == {("/guestbook", "name"), ("/guestbook", "message")}   # contact is safe
+    assert all(f.severity == "Critical" for f in collector.findings)
+    assert "Later found as a real HTML tag on" in collector.findings[0].evidence

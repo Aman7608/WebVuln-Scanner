@@ -31,6 +31,7 @@ CONFIDENCE_FACTORS = {"High": 1.0, "Medium": 0.8, "Low": 0.6}
 # vulnerability type -> (impact, exploitability)
 RISK_RATINGS = {
     "sql_injection":        (5, 4),  # can read or change the whole database
+    "stored_xss":           (5, 4),  # attacker JavaScript runs for EVERY visitor of a page
     "reflected_xss":        (4, 4),  # can run attacker JavaScript in a victim's browser
     "sensitive_file":       (5, 4),  # secrets such as passwords or source code exposed
     "open_redirect":        (3, 3),  # helps phishing by abusing a trusted domain
