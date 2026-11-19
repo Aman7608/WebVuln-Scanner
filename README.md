@@ -184,7 +184,7 @@ confidence) and an open redirect is 3 x 3 = 9 (Medium). Lower confidence can onl
 You need **Python 3.10+** and **Git**.
 
 ```powershell
-git clone https://github.com/<your-username>/WebVuln-Scanner.git
+git clone https://github.com/Aman7608/WebVuln-Scanner.git
 cd WebVuln-Scanner
 python -m venv venv
 venv\Scripts\activate          # Windows
