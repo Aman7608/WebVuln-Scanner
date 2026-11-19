@@ -61,6 +61,11 @@ def is_crawlable_link(url):
 JS_PATH_PATTERN = re.compile(
     r"""["'`](/[A-Za-z0-9_\-][A-Za-z0-9_\-./]*(?:\?[A-Za-z0-9_\-=&%.]*)?)["'`]""")
 
+# The same inside JavaScript "template strings", where the path comes right
+# after a variable, for example:  `${this.hostServer}/rest/products/search?q=${t}`
+JS_TEMPLATE_PATH_PATTERN = re.compile(
+    r"""\$\{[^}`]{1,60}\}(/[A-Za-z0-9_\-][A-Za-z0-9_\-./]*(?:\?[A-Za-z0-9_\-=&%.]*)?)(?=[`$])""")
+
 
 def extract_js_endpoints(js_code, page_url):
     """Return full URLs for path-like strings found in JavaScript code.
@@ -70,7 +75,8 @@ def extract_js_endpoints(js_code, page_url):
     (React, Angular, Vue) keep most of their API addresses in their .js files.
     """
     found = []
-    for match in JS_PATH_PATTERN.finditer(js_code):
+    matches = list(JS_PATH_PATTERN.finditer(js_code)) + list(JS_TEMPLATE_PATH_PATTERN.finditer(js_code))
+    for match in matches:
         path = match.group(1)
         if path.startswith("//") or len(path) < 3:
             continue

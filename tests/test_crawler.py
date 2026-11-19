@@ -75,6 +75,13 @@ def test_js_endpoint_extraction():
         "http://site/api/items?search=", "http://site/rest/basket"]
 
 
+def test_js_template_string_endpoints():
+    from scanner.crawler.url_parser import extract_js_endpoints
+    # This is how Juice Shop (Angular) writes its search API address
+    code = "search(t){return this.http.get(`${this.hostServer}/rest/products/search?q=${t}`)}"
+    assert extract_js_endpoints(code, "http://site/") == ["http://site/rest/products/search?q="]
+
+
 def test_crawler_finds_api_hidden_in_javascript(handler, lab_url):
     result = Crawler(handler, lab_url + "/shop", max_depth=1, max_pages=10).crawl()
     assert lab_url + "/static/shop.js" in result.scripts
