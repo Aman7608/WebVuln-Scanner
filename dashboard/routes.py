@@ -23,7 +23,8 @@ from flask import (Blueprint, Response, abort, current_app, jsonify, render_temp
 from config import settings
 from database import db
 from reports.report_generator import generate_html_report, generate_pdf_report
-from scanner.engine.scan_engine import (ALL_MODULES, build_config, create_scan,
+from scanner.engine.scan_engine import (DEFAULT_MODULES, build_config, build_secrets,
+                                        create_scan,
                                         start_scan_in_background)
 from scanner.target_manager import TargetError
 
@@ -32,7 +33,8 @@ dashboard_bp = Blueprint("dashboard", __name__)
 
 MODULE_LABELS = {
     "headers": "Security headers",
-    "xss": "Cross-Site Scripting (XSS)",
+    "xss": "Reflected XSS",
+    "stored_xss": "Stored XSS (saves test data)",
     "sqli": "SQL injection",
     "redirect": "Open redirect",
     "directories": "Common files and folders",
@@ -71,7 +73,9 @@ def new_scan():
         "delay": settings.LIMIT_REQUEST_DELAY,
     }
     return render_template("scan.html", defaults=defaults, limits=limits,
-                           modules=MODULE_LABELS, allowed_hosts=settings.ALLOWED_HOSTS)
+                           modules=MODULE_LABELS, default_modules=DEFAULT_MODULES,
+                           allowed_hosts=settings.ALLOWED_HOSTS,
+                           excluded_paths=", ".join(settings.DEFAULT_EXCLUDED_PATHS))
 
 
 @dashboard_bp.route("/scans/<int:scan_id>")
@@ -143,7 +147,7 @@ def api_start_scan():
     if data.get("authorized") is not True:
         return jsonify(error="Please confirm that you are authorized to scan this target."), 400
 
-    modules = data.get("modules", ALL_MODULES)
+    modules = data.get("modules", DEFAULT_MODULES)
     if not isinstance(modules, list) or not modules:
         return jsonify(error="Select at least one scan module."), 400
 
@@ -156,7 +160,8 @@ def api_start_scan():
     except TargetError as error:
         return jsonify(error=str(error)), 400
 
-    start_scan_in_background(db_path(), scan_id, target_url, config)
+    # Password and cookie go straight to the scan thread and are never saved
+    start_scan_in_background(db_path(), scan_id, target_url, config, build_secrets(data))
     logger.info("Started scan %s for %s", scan_id, target_url)
     return jsonify(scan_id=scan_id, target_url=target_url), 201
 

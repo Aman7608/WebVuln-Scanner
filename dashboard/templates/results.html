@@ -45,6 +45,9 @@
   <div><span class="dim">Finished</span> {{ scan.finished_at or '-' }}</div>
   <div><span class="dim">Requests sent</span> {{ scan.requests_sent }}</div>
   <div><span class="dim">Depth / pages</span> {{ scan.config.max_depth }} / {{ scan.config.max_pages }}</div>
+  <div><span class="dim">Login</span>
+    {% if scan.config.login_username %}form login as {{ scan.config.login_username }}{% elif scan.config.uses_cookie %}session cookie{% else %}none{% endif %}</div>
+  {% if scan.config.exclude_paths %}<div><span class="dim">Excluded</span> {{ scan.config.exclude_paths|join(', ') }}</div>{% endif %}
   <div><span class="dim">Modules</span> {% for m in scan.config.modules %}{{ module_labels.get(m, m) }}{% if not loop.last %}, {% endif %}{% endfor %}</div>
 </section>
 

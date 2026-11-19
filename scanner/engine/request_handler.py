@@ -12,6 +12,7 @@ Keeping all requests in one place makes it easy to enforce the safety rules:
 import logging
 import threading
 import time
+from urllib.parse import urlparse
 
 import requests
 
@@ -28,17 +29,26 @@ class RequestLimitReached(Exception):
 class RequestHandler:
     def __init__(self, target_url, timeout=settings.DEFAULT_TIMEOUT,
                  max_requests=settings.DEFAULT_MAX_REQUESTS,
-                 delay=settings.DEFAULT_REQUEST_DELAY):
+                 delay=settings.DEFAULT_REQUEST_DELAY, exclude_patterns=None):
         self.target_url = target_url
         self.timeout = timeout
         self.max_requests = max_requests
         self.delay = delay
+        # Parts of URLs we must never request, e.g. "logout" (would end our login)
+        # or "reset" (could wipe the test database)
+        self.exclude_patterns = [p.lower() for p in (exclude_patterns or [])]
         self.request_count = 0
         self._lock = threading.Lock()
 
         # A Session re-uses connections and keeps cookies between requests
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": settings.USER_AGENT})
+
+    def is_excluded(self, url):
+        """Return True if the URL path or query contains an excluded word."""
+        parsed = urlparse(url)
+        text = (parsed.path + "?" + parsed.query).lower()
+        return any(pattern in text for pattern in self.exclude_patterns)
 
     def send(self, method, url, params=None, data=None):
         """Send one request and return the Response, or None if it failed.
@@ -49,6 +59,9 @@ class RequestHandler:
         """
         if not is_in_scope(url, self.target_url):
             logger.warning("Blocked out-of-scope request to %s", url)
+            return None
+        if self.is_excluded(url):
+            logger.info("Skipped excluded URL %s", url)
             return None
 
         with self._lock:

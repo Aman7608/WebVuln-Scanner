@@ -46,6 +46,7 @@
     <tr><td>Scan finished</td><td>{{ scan.finished_at or '-' }}</td></tr>
     <tr><td>Pages discovered</td><td>{{ scan.pages_found }}</td></tr>
     <tr><td>Requests sent</td><td>{{ scan.requests_sent }}</td></tr>
+    <tr><td>Login</td><td>{% if scan.config.login_username %}form login as {{ scan.config.login_username }}{% elif scan.config.uses_cookie %}session cookie{% else %}none{% endif %}</td></tr>
     <tr><td>Settings</td><td>depth {{ scan.config.max_depth }}, max {{ scan.config.max_pages }} pages, modules: {{ scan.config.modules|join(', ') }}</td></tr>
   </table>
 

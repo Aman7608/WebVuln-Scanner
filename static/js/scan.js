@@ -20,6 +20,11 @@ function readForm() {
     timeout: Number(data.get("timeout")),
     max_requests: Number(data.get("max_requests")),
     delay: Number(data.get("delay")),
+    exclude_paths: data.get("exclude_paths"),
+    login_url: data.get("login_url").trim(),
+    login_username: data.get("login_username").trim(),
+    login_password: data.get("login_password"),
+    cookies: data.get("cookies").trim(),
     authorized: document.getElementById("authorized").checked,
   };
 }
@@ -29,6 +34,7 @@ function validate(values) {
   if (!values.target_url) return "Please enter a target URL.";
   if (!/^https?:\/\//i.test(values.target_url)) return "The URL must start with http:// or https://";
   if (values.modules.length === 0) return "Select at least one scan module.";
+  if (values.login_url && !values.login_username) return "Please enter the username for the login page.";
   if (!values.authorized) return "Please confirm that you are authorized to scan this target.";
   return null;
 }

@@ -106,3 +106,47 @@ def test_scan_stops_cleanly_at_request_limit(db_path, lab_url):
     scan = db.get_scan(db_path, scan_id)
     assert scan["status"] == "completed"
     assert scan["requests_sent"] <= 10
+
+
+def test_full_scan_with_login_and_stored_xss(db_path, lab_url, monkeypatch):
+    from scanner.engine.scan_engine import ALL_MODULES, build_secrets
+    from test_lab.vulnerable_app import LAB_PASSWORD, LAB_USERNAME
+
+    monkeypatch.setattr("config.settings.SQLI_TIME_DELAY", 1)
+    form = {"max_depth": 3, "max_pages": 60, "delay": 0, "modules": ALL_MODULES,
+            "login_url": lab_url + "/account/login", "login_username": LAB_USERNAME,
+            "login_password": LAB_PASSWORD}
+    config = build_config(form)
+    scan_id, target = create_scan(db_path, lab_url + "/", config)
+    run_scan(db_path, scan_id, target, config, build_secrets(form))
+
+    scan = db.get_scan(db_path, scan_id)
+    assert scan["status"] == "completed", scan["error_message"]
+    # The password is never stored, only the username
+    assert "login_password" not in scan["config"]
+    assert LAB_PASSWORD not in str(scan)
+
+    found = {(f["vuln_type"], f["url"].replace(lab_url, ""), f["parameter"])
+             for f in db.get_findings(db_path, scan_id)}
+    assert ("reflected_xss", "/account/notes", "title") in found      # behind the login
+    assert ("stored_xss", "/guestbook", "message") in found
+    assert ("sql_injection", "/order", "id") in found                  # time-based
+    assert ("sql_injection", "/api/items", "search") in found          # found via JavaScript
+
+
+def test_scan_fails_clearly_with_wrong_password(db_path, lab_url):
+    from scanner.engine.scan_engine import build_secrets
+    form = {"login_url": lab_url + "/account/login", "login_username": "tester",
+            "login_password": "wrong", "delay": 0}
+    config = build_config(form)
+    scan_id, target = create_scan(db_path, lab_url + "/", config)
+    run_scan(db_path, scan_id, target, config, build_secrets(form))
+    scan = db.get_scan(db_path, scan_id)
+    assert scan["status"] == "failed"
+    assert "Login failed" in scan["error_message"]
+
+
+def test_login_page_must_be_on_target(db_path, lab_url):
+    config = build_config({"login_url": "https://example.com/login", "login_username": "x"})
+    with pytest.raises(TargetError, match="same website"):
+        create_scan(db_path, lab_url + "/", config)

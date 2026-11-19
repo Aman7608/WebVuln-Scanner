@@ -21,7 +21,7 @@
     <legend>Scan modules</legend>
     <div class="checks">
       {% for key, label in modules.items() %}
-      <label class="check"><input type="checkbox" name="modules" value="{{ key }}" checked> {{ label }}</label>
+      <label class="check"><input type="checkbox" name="modules" value="{{ key }}" {{ 'checked' if key in default_modules }}> {{ label }}</label>
       {% endfor %}
     </div>
   </fieldset>
@@ -41,6 +41,29 @@
         <input type="number" name="delay" min="0" max="{{ limits.delay }}" step="0.05" value="{{ defaults.delay }}"></label>
     </div>
   </fieldset>
+
+  <label class="field">
+    <span>Excluded paths</span>
+    <input type="text" name="exclude_paths" value="{{ excluded_paths }}" autocomplete="off">
+    <small class="dim">URLs containing any of these words (comma separated) are never requested,
+      so the scan cannot log itself out or reset data. For DVWA also add <code>security</code>.</small>
+  </label>
+
+  <details class="field auth-box">
+    <summary class="summary-title">Login (optional): scan pages behind a login</summary>
+    <p class="dim">Use <strong>test accounts only</strong>. The password and cookie are kept in memory
+      during the scan and are never saved in the database or reports.</p>
+    <div class="grid">
+      <label><span>Login page URL</span>
+        <input type="url" name="login_url" placeholder="http://127.0.0.1:5001/account/login" autocomplete="off"></label>
+      <label><span>Username</span>
+        <input type="text" name="login_username" autocomplete="off"></label>
+      <label><span>Password</span>
+        <input type="password" name="login_password" autocomplete="new-password"></label>
+    </div>
+    <label class="field cookie-field"><span>Or paste a session cookie</span>
+      <input type="text" name="cookies" placeholder="PHPSESSID=abc123; security=low" autocomplete="off"></label>
+  </details>
 
   <label class="check authorize">
     <input type="checkbox" id="authorized" name="authorized">

@@ -141,3 +141,25 @@ def test_pdf_report_handles_special_characters():
 
 def test_pdf_report_with_no_findings():
     assert generate_pdf_report(SAMPLE_SCAN, [], SAMPLE_COUNTS, []).startswith(b"%PDF")
+
+
+def test_new_scan_page_shows_login_and_exclusions(client):
+    page = client.get("/scan").data.decode()
+    assert 'name="login_url"' in page and 'name="cookies"' in page
+    assert "logout" in page
+    # Stored XSS writes data, so it is not ticked by default
+    assert re.search(r'value="stored_xss"\s*>', page)
+    assert re.search(r'value="xss"\s*checked', page)
+
+
+def test_api_scan_with_login_never_stores_password(client, lab_url):
+    from test_lab.vulnerable_app import LAB_PASSWORD, LAB_USERNAME
+    response = start_scan(client, lab_url + "/", modules=["xss"], login_url=lab_url + "/account/login",
+                          login_username=LAB_USERNAME, login_password=LAB_PASSWORD)
+    scan_id = response.get_json()["scan_id"]
+    assert wait_for_scan(client, scan_id)["status"] == "completed"
+    page = client.get(f"/scans/{scan_id}").data.decode()
+    assert "form login as tester" in page
+    assert "/account/notes" in page
+    assert LAB_PASSWORD not in page
+    assert LAB_PASSWORD.encode() not in client.get(f"/scans/{scan_id}/report.html").data
