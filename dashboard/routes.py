@@ -22,7 +22,8 @@ from flask import (Blueprint, Response, abort, current_app, jsonify, render_temp
 
 from config import settings
 from database import db
-from reports.report_generator import generate_html_report, generate_pdf_report
+from reports.report_generator import (generate_csv_report, generate_html_report,
+                                      generate_json_report, generate_pdf_report)
 from scanner.engine.scan_engine import (DEFAULT_MODULES, build_config, build_secrets,
                                         cancel_scan, create_scan,
                                         start_scan_in_background)
@@ -114,6 +115,20 @@ def html_report(scan_id):
         response.headers["Content-Disposition"] = (
             f"attachment; filename=webvuln-scan-{scan_id}-report.html")
     return response
+
+
+@dashboard_bp.route("/scans/<int:scan_id>/findings.json")
+def json_export(scan_id):
+    return Response(generate_json_report(**report_data(scan_id)), mimetype="application/json",
+                    headers={"Content-Disposition":
+                             f"attachment; filename=webvuln-scan-{scan_id}-findings.json"})
+
+
+@dashboard_bp.route("/scans/<int:scan_id>/findings.csv")
+def csv_export(scan_id):
+    return Response(generate_csv_report(**report_data(scan_id)), mimetype="text/csv",
+                    headers={"Content-Disposition":
+                             f"attachment; filename=webvuln-scan-{scan_id}-findings.csv"})
 
 
 @dashboard_bp.route("/scans/<int:scan_id>/report.pdf")

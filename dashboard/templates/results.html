@@ -12,6 +12,8 @@
   <div class="actions">
     <a class="btn btn-ghost" href="{{ url_for('dashboard.html_report', scan_id=scan.id) }}" target="_blank" rel="noopener">View HTML report</a>
     <a class="btn btn-ghost" href="{{ url_for('dashboard.html_report', scan_id=scan.id, download=1) }}">Download HTML</a>
+    <a class="btn btn-ghost" href="{{ url_for('dashboard.json_export', scan_id=scan.id) }}">JSON</a>
+    <a class="btn btn-ghost" href="{{ url_for('dashboard.csv_export', scan_id=scan.id) }}">CSV</a>
     <a class="btn" href="{{ url_for('dashboard.pdf_report', scan_id=scan.id) }}">Download PDF</a>
   </div>
   {% endif %}

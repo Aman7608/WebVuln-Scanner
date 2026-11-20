@@ -183,3 +183,31 @@ def test_cancel_running_scan(client, lab_url):
 
 def test_cancel_requires_json(client):
     assert client.post("/api/scans/1/cancel", data={}).status_code == 403
+
+
+def test_json_and_csv_export():
+    import csv
+    import io
+    import json
+    from reports.report_generator import csv_safe, generate_csv_report, generate_json_report
+
+    finding = dict(SAMPLE_FINDING, evidence="=HYPERLINK(\"http://evil.test\")")
+    data = json.loads(generate_json_report(SAMPLE_SCAN, [finding], SAMPLE_COUNTS, []))
+    assert data["scan"]["target_url"] == "http://127.0.0.1/"
+    assert data["findings"][0]["severity"] == "High"
+
+    rows = list(csv.reader(io.StringIO(generate_csv_report(SAMPLE_SCAN, [finding], SAMPLE_COUNTS, []))))
+    assert rows[0][0] == "severity" and rows[1][0] == "High"
+    # Formula-looking text is made harmless for Excel
+    assert rows[1][rows[0].index("evidence")].startswith("'=")
+    assert csv_safe("+1") == "'+1" and csv_safe("normal") == "normal"
+
+
+def test_export_routes(client, lab_url):
+    scan_id = start_scan(client, lab_url + "/", modules=["headers"]).get_json()["scan_id"]
+    wait_for_scan(client, scan_id)
+    json_response = client.get(f"/scans/{scan_id}/findings.json")
+    assert json_response.status_code == 200 and json_response.get_json()["findings"]
+    csv_response = client.get(f"/scans/{scan_id}/findings.csv")
+    assert csv_response.mimetype == "text/csv" and b"Content-Security-Policy" in csv_response.data
+    assert "JSON</a>" in client.get(f"/scans/{scan_id}").data.decode()

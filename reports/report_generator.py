@@ -10,7 +10,9 @@ PDF:  uses ReportLab's "platypus" module, which builds a PDF from a list of
       small set of HTML-like tags, so we escape all scan text first.
 """
 
+import csv
 import io
+import json
 import os
 from datetime import datetime
 from xml.sax.saxutils import escape
@@ -45,6 +47,46 @@ def generate_html_report(scan, findings, counts, urls):
     template = _jinja.get_template("report.html")
     return template.render(scan=scan, findings=findings, counts=counts, urls=urls,
                            generated_at=generated_time())
+
+
+# ------------------------------------------------------------------ JSON and CSV
+FINDING_FIELDS = ["severity", "risk_score", "confidence", "name", "vuln_type", "url",
+                  "parameter", "description", "evidence", "remediation"]
+
+
+def generate_json_report(scan, findings, counts, urls):
+    """All scan data as JSON, handy for other tools or scripts."""
+    data = {
+        "tool": "WebVuln Scanner",
+        "generated_at": generated_time(),
+        "scan": {key: scan.get(key) for key in (
+            "id", "target_url", "status", "started_at", "finished_at", "pages_found",
+            "requests_sent", "error_message", "config")},
+        "severity_counts": counts,
+        "findings": [{key: f.get(key) for key in FINDING_FIELDS} for f in findings],
+        "discovered_urls": [{key: u.get(key) for key in ("source", "url", "status_code", "depth")}
+                            for u in urls],
+    }
+    return json.dumps(data, indent=2)
+
+
+def csv_safe(value):
+    """Stop "CSV injection": a cell starting with = + - @ would run as a formula
+    in Excel. Our evidence can contain attacker-style text, so we add a ' first."""
+    text = "" if value is None else str(value)
+    if text[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + text
+    return text
+
+
+def generate_csv_report(scan, findings, counts, urls):
+    """One row per finding. Opens in Excel or Google Sheets."""
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(FINDING_FIELDS)
+    for f in findings:
+        writer.writerow([csv_safe(f.get(key)) for key in FINDING_FIELDS])
+    return output.getvalue()
 
 
 # ------------------------------------------------------------------ PDF
