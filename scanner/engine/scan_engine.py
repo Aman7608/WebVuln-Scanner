@@ -26,6 +26,7 @@ from scanner.crawler.crawler import Crawler
 from scanner.engine.auth import LoginError, apply_cookie_string, login_with_form
 from scanner.engine.request_handler import RequestHandler, RequestLimitReached, ScanCancelled
 from scanner.target_manager import TargetError, check_target, is_in_scope, validate_url
+from scanner.vulnerabilities.command_injection_scanner import scan_command_injection
 from scanner.vulnerabilities.directory_scanner import scan_directories
 from scanner.vulnerabilities.header_analyzer import scan_headers
 from scanner.vulnerabilities.redirect_scanner import scan_redirects
@@ -35,9 +36,9 @@ from scanner.vulnerabilities.xss_scanner import scan_xss
 
 logger = logging.getLogger(__name__)
 
-ALL_MODULES = ["headers", "xss", "stored_xss", "sqli", "redirect", "directories"]
+ALL_MODULES = ["headers", "xss", "stored_xss", "sqli", "cmdi", "redirect", "directories"]
 # Stored XSS saves test data on the site, so it is only run when the user ticks it
-DEFAULT_MODULES = ["headers", "xss", "sqli", "redirect", "directories"]
+DEFAULT_MODULES = ["headers", "xss", "sqli", "cmdi", "redirect", "directories"]
 
 # Scans running right now: scan id -> its RequestHandler (used by the Cancel button)
 RUNNING_SCANS = {}
@@ -185,8 +186,10 @@ def run_scan(db_path, scan_id, target_url, config, secrets=None):
              lambda: scan_xss(handler, points, collector)),
             ("stored_xss", 65, "Testing forms for stored XSS",
              lambda: scan_stored_xss(handler, points, [p["url"] for p in pages], collector)),
-            ("sqli", 80, "Testing for SQL injection",
+            ("sqli", 75, "Testing for SQL injection",
              lambda: scan_sqli(handler, points, collector)),
+            ("cmdi", 80, "Testing for command injection",
+             lambda: scan_command_injection(handler, points, collector)),
             ("redirect", 85, "Testing for open redirects",
              lambda: scan_redirects(handler, points, collector)),
             ("directories", 98, "Checking common paths",

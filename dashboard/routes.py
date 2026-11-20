@@ -37,6 +37,7 @@ MODULE_LABELS = {
     "xss": "Reflected XSS",
     "stored_xss": "Stored XSS (saves test data)",
     "sqli": "SQL injection",
+    "cmdi": "Command injection",
     "redirect": "Open redirect",
     "directories": "Common files and folders",
 }

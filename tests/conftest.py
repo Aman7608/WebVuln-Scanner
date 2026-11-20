@@ -36,3 +36,9 @@ def handler(lab_url):
     request_handler = RequestHandler(lab_url, timeout=5, max_requests=2000, delay=0)
     yield request_handler
     request_handler.close()
+
+
+@pytest.fixture(autouse=True)
+def fast_time_based_checks(monkeypatch):
+    """Time-based checks wait 3 s in real scans. 1 s is enough in tests and much faster."""
+    monkeypatch.setattr("config.settings.SQLI_TIME_DELAY", 1)

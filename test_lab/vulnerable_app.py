@@ -13,7 +13,9 @@ Run it on its own with:
 and it will be available at http://127.0.0.1:5001
 """
 
+import ipaddress
 import json
+import re
 import sqlite3
 import threading
 import time
@@ -85,6 +87,8 @@ def home():
   <li><a href="/guestbook">Guestbook (stored XSS)</a></li>
   <li><a href="/account/login">Member area (needs login)</a></li>
   <li><a href="/shop">Shop (JavaScript app)</a></li>
+  <li><a href="/ping?host=127.0.0.1">Ping tool (command injection)</a></li>
+  <li><a href="/ping-safe?host=127.0.0.1">Ping tool (safe)</a></li>
   <li><a href="https://example.com/external">External link (must not be crawled)</a></li>
   <li><a href="mailto:test@example.com">Email link</a></li>
 </ul>""")
@@ -327,6 +331,34 @@ def api_items():
         return Response(json.dumps({"error": f"SQLITE_ERROR: {error}"}), status=500,
                         mimetype="application/json")
     return Response(json.dumps([name for (name,) in rows]), mimetype="application/json")
+
+
+# ---------------- Command injection (simulated) ----------------
+SHELL_SLEEP = re.compile(r"(?:;|\|\|?|&&|\$\()\s*sleep\s+(\d+(?:\.\d+)?)")
+
+
+@lab.route("/ping")
+def ping_tool():
+    host = request.args.get("host", "")
+    # BUG (simulated): a real app would run  os.system("ping -c 1 " + host)
+    # The lab does NOT run a shell. It only copies what a shell would do with
+    # "; sleep N", so the scanner can be tested without any real danger.
+    match = SHELL_SLEEP.search(host)
+    if match:
+        time.sleep(min(float(match.group(1)), 5))
+    return page("Ping tool", f"<p>Ping sent to {escape(host)}.</p>")
+
+
+@lab.route("/ping-safe")
+def ping_tool_safe():
+    host = request.args.get("host", "")
+    # SAFE: only accept a real IP address, never pass text to a shell
+    try:
+        ipaddress.ip_address(host)
+        result = f"Ping sent to {escape(host)}."
+    except ValueError:
+        result = "Please enter a valid IP address."
+    return page("Ping tool", f"<p>{result}</p>")
 
 
 # ---------------- Exposed files ----------------
