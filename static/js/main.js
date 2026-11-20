@@ -27,13 +27,14 @@ if (live) {
   fill.style.width = fill.dataset.progress + "%";
 
   const scanId = live.dataset.scanId;
+  setupCancelButton(() => scanId);   // from cancel.js
   const poll = async () => {
     try {
       const scan = await (await fetch(`/api/scans/${scanId}`)).json();
       fill.style.width = scan.progress + "%";
       document.getElementById("progress-percent").textContent = scan.progress + "%";
       document.getElementById("progress-step").textContent = scan.current_step || "Starting…";
-      if (scan.status === "completed" || scan.status === "failed") {
+      if (["completed", "failed", "cancelled"].includes(scan.status)) {
         window.location.reload();
         return;
       }

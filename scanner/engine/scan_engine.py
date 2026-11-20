@@ -24,7 +24,7 @@ from database import db
 from scanner.analysis.findings_collector import FindingsCollector
 from scanner.crawler.crawler import Crawler
 from scanner.engine.auth import LoginError, apply_cookie_string, login_with_form
-from scanner.engine.request_handler import RequestHandler, RequestLimitReached
+from scanner.engine.request_handler import RequestHandler, RequestLimitReached, ScanCancelled
 from scanner.target_manager import TargetError, check_target, is_in_scope, validate_url
 from scanner.vulnerabilities.directory_scanner import scan_directories
 from scanner.vulnerabilities.header_analyzer import scan_headers
@@ -38,6 +38,20 @@ logger = logging.getLogger(__name__)
 ALL_MODULES = ["headers", "xss", "stored_xss", "sqli", "redirect", "directories"]
 # Stored XSS saves test data on the site, so it is only run when the user ticks it
 DEFAULT_MODULES = ["headers", "xss", "sqli", "redirect", "directories"]
+
+# Scans running right now: scan id -> its RequestHandler (used by the Cancel button)
+RUNNING_SCANS = {}
+_running_lock = threading.Lock()
+
+
+def cancel_scan(scan_id):
+    """Ask a running scan to stop. Returns False if the scan is not running here."""
+    with _running_lock:
+        handler = RUNNING_SCANS.get(scan_id)
+    if handler is None:
+        return False
+    handler.cancel_event.set()
+    return True
 
 
 def clamp(value, low, high):
@@ -131,6 +145,8 @@ def run_scan(db_path, scan_id, target_url, config, secrets=None):
     modules = config["modules"]
     pages = []
     note = "Finished"
+    with _running_lock:
+        RUNNING_SCANS[scan_id] = handler
 
     def progress(percent, step):
         db.update_progress(db_path, scan_id, percent, step, handler.request_count)
@@ -182,17 +198,29 @@ def run_scan(db_path, scan_id, target_url, config, secrets=None):
             if name not in modules:
                 continue
             progress(start_percent, label)
+            if handler.cancel_event.is_set():
+                break
             try:
                 action()
+            except ScanCancelled:
+                break
             except RequestLimitReached:
                 note = f"Stopped early: request limit ({config['max_requests']}) reached"
                 logger.warning(note)
                 break
             start_percent = end_percent
 
+        cancelled = handler.cancel_event.is_set()
+        if cancelled:
+            note = "Cancelled by the user"
         db.save_findings(db_path, scan_id, collector.sorted_findings())
-        db.finish_scan(db_path, scan_id, len(pages), handler.request_count, note=note)
-        logger.info("Scan %s finished with %d findings", scan_id, len(collector.findings))
+        db.finish_scan(db_path, scan_id, len(pages), handler.request_count, note=note,
+                       cancelled=cancelled)
+        logger.info("Scan %s ended (%s) with %d findings", scan_id, note, len(collector.findings))
+
+    except ScanCancelled:  # cancelled while logging in
+        db.finish_scan(db_path, scan_id, len(pages), handler.request_count,
+                       note="Cancelled by the user", cancelled=True)
 
     except (TargetError, LoginError) as error:
         db.finish_scan(db_path, scan_id, len(pages), handler.request_count, str(error))
@@ -202,6 +230,8 @@ def run_scan(db_path, scan_id, target_url, config, secrets=None):
         db.finish_scan(db_path, scan_id, len(pages), handler.request_count,
                        f"Unexpected error: {error}")
     finally:
+        with _running_lock:
+            RUNNING_SCANS.pop(scan_id, None)
         handler.close()
 
 

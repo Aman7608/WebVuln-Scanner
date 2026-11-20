@@ -15,7 +15,8 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
 
-from database.models import SCHEMA, STATUS_COMPLETED, STATUS_FAILED, STATUS_RUNNING
+from database.models import (SCHEMA, STATUS_CANCELLED, STATUS_COMPLETED, STATUS_FAILED,
+                             STATUS_RUNNING)
 
 
 def now():
@@ -69,8 +70,11 @@ def update_progress(db_path, scan_id, progress, step, requests_sent=0):
             (STATUS_RUNNING, int(progress), step, requests_sent, scan_id))
 
 
-def finish_scan(db_path, scan_id, pages_found, requests_sent, error_message="", note="Finished"):
+def finish_scan(db_path, scan_id, pages_found, requests_sent, error_message="", note="Finished",
+                cancelled=False):
     status = STATUS_FAILED if error_message else STATUS_COMPLETED
+    if cancelled:
+        status = STATUS_CANCELLED
     with connect(db_path) as conn:
         conn.execute(
             """UPDATE scans SET status = ?, progress = 100, current_step = ?, pages_found = ?,

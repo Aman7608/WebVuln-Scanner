@@ -26,6 +26,11 @@ class RequestLimitReached(Exception):
     """Raised when the scan has used up its request budget."""
 
 
+class ScanCancelled(RequestLimitReached):
+    """Raised when the user pressed Cancel. It stops the scan the same way as
+    running out of requests, so every module already knows how to handle it."""
+
+
 class RequestHandler:
     def __init__(self, target_url, timeout=settings.DEFAULT_TIMEOUT,
                  max_requests=settings.DEFAULT_MAX_REQUESTS,
@@ -39,6 +44,8 @@ class RequestHandler:
         self.exclude_patterns = [p.lower() for p in (exclude_patterns or [])]
         self.request_count = 0
         self._lock = threading.Lock()
+        # Set by the Cancel button; checked before every request
+        self.cancel_event = threading.Event()
 
         # A Session re-uses connections and keeps cookies between requests
         self.session = requests.Session()
@@ -63,6 +70,9 @@ class RequestHandler:
         if self.is_excluded(url):
             logger.info("Skipped excluded URL %s", url)
             return None
+
+        if self.cancel_event.is_set():
+            raise ScanCancelled("The scan was cancelled.")
 
         with self._lock:
             if self.request_count >= self.max_requests:

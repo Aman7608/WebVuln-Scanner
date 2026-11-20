@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS targets (
 CREATE TABLE IF NOT EXISTS scans (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     target_id       INTEGER NOT NULL REFERENCES targets(id),
-    status          TEXT NOT NULL,          -- pending, running, completed, failed
+    status          TEXT NOT NULL,          -- pending, running, completed, failed, cancelled
     progress        INTEGER NOT NULL DEFAULT 0,   -- 0 to 100
     current_step    TEXT DEFAULT '',
     config_json     TEXT NOT NULL,          -- the scan settings as JSON text
@@ -66,3 +66,4 @@ STATUS_PENDING = "pending"
 STATUS_RUNNING = "running"
 STATUS_COMPLETED = "completed"
 STATUS_FAILED = "failed"
+STATUS_CANCELLED = "cancelled"

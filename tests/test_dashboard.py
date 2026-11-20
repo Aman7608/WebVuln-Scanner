@@ -26,7 +26,7 @@ def wait_for_scan(client, scan_id, seconds=60):
     deadline = time.time() + seconds
     while time.time() < deadline:
         status = client.get(f"/api/scans/{scan_id}").get_json()
-        if status["status"] in ("completed", "failed"):
+        if status["status"] in ("completed", "failed", "cancelled"):
             return status
         time.sleep(0.3)
     raise AssertionError("scan did not finish in time")
@@ -163,3 +163,23 @@ def test_api_scan_with_login_never_stores_password(client, lab_url):
     assert "/account/notes" in page
     assert LAB_PASSWORD not in page
     assert LAB_PASSWORD.encode() not in client.get(f"/scans/{scan_id}/report.html").data
+
+
+def test_cancel_running_scan(client, lab_url):
+    # A slow scan (delay between requests) so there is time to cancel it
+    scan_id = start_scan(client, lab_url + "/", delay=0.3, max_pages=40).get_json()["scan_id"]
+    time.sleep(1)
+    response = client.post(f"/api/scans/{scan_id}/cancel", json={})
+    assert response.status_code == 200
+    status = wait_for_scan(client, scan_id)
+    assert status["status"] == "cancelled"
+    page = client.get(f"/scans/{scan_id}").data.decode()
+    assert "was cancelled" in page
+    # Reports still work for a cancelled scan
+    assert client.get(f"/scans/{scan_id}/report.pdf").status_code == 200
+    # Cancelling again is refused because it is no longer running
+    assert client.post(f"/api/scans/{scan_id}/cancel", json={}).status_code == 409
+
+
+def test_cancel_requires_json(client):
+    assert client.post("/api/scans/1/cancel", data={}).status_code == 403

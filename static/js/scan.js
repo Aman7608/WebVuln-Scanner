@@ -4,6 +4,9 @@ const form = document.getElementById("scan-form");
 const errorBox = document.getElementById("form-error");
 const startButton = document.getElementById("start-button");
 const progressCard = document.getElementById("progress-card");
+let currentScanId = null;   // set when the scan has started
+
+setupCancelButton(() => currentScanId);   // from cancel.js
 
 function showError(message) {
   errorBox.textContent = message;
@@ -52,7 +55,7 @@ async function pollScan(scanId) {
     const response = await fetch(`/api/scans/${scanId}`);
     const scan = await response.json();
     updateProgress(scan);
-    if (scan.status === "completed" || scan.status === "failed") {
+    if (["completed", "failed", "cancelled"].includes(scan.status)) {
       window.location.href = `/scans/${scanId}`;
       return;
     }
@@ -91,6 +94,7 @@ form.addEventListener("submit", async (event) => {
     form.hidden = true;
     progressCard.hidden = false;
     document.getElementById("progress-target").textContent = result.target_url;
+    currentScanId = result.scan_id;
     pollScan(result.scan_id);
   } catch (error) {
     showError("Could not reach the server. Is app.py still running?");

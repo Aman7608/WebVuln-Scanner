@@ -8,7 +8,7 @@
     <h1>Scan #{{ scan.id }} {{ status_badge(scan.status) }}</h1>
     <p class="mono">{{ scan.target_url }}</p>
   </div>
-  {% if scan.status in ('completed', 'failed') %}
+  {% if scan.status in ('completed', 'failed', 'cancelled') %}
   <div class="actions">
     <a class="btn btn-ghost" href="{{ url_for('dashboard.html_report', scan_id=scan.id) }}" target="_blank" rel="noopener">View HTML report</a>
     <a class="btn btn-ghost" href="{{ url_for('dashboard.html_report', scan_id=scan.id, download=1) }}">Download HTML</a>
@@ -23,11 +23,14 @@
   <div class="progress"><div class="progress-fill" id="progress-fill" data-progress="{{ scan.progress }}"></div></div>
   <div class="progress-info"><span id="progress-step">{{ scan.current_step or 'Starting…' }}</span><span id="progress-percent">{{ scan.progress }}%</span></div>
   <p class="dim">This page reloads automatically when the scan finishes.</p>
+  <button type="button" class="btn btn-danger" id="cancel-button" data-scan-id="{{ scan.id }}">Cancel scan</button>
 </section>
 {% else %}
 
 {% if scan.error_message %}
 <div class="alert alert-error"><strong>Scan failed:</strong> {{ scan.error_message }}</div>
+{% elif scan.status == 'cancelled' %}
+<div class="alert alert-warn">This scan was cancelled. The results below are only what was found before it stopped.</div>
 {% elif scan.current_step and scan.current_step != 'Finished' %}
 <div class="alert alert-warn">{{ scan.current_step }}. Results below are partial.</div>
 {% endif %}
@@ -109,4 +112,7 @@
 {% endif %}
 {% endblock %}
 
-{% block scripts %}<script src="{{ url_for('static', filename='js/main.js') }}"></script>{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/cancel.js') }}"></script>
+<script src="{{ url_for('static', filename='js/main.js') }}"></script>
+{% endblock %}

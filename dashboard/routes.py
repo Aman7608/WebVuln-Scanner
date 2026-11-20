@@ -24,7 +24,7 @@ from config import settings
 from database import db
 from reports.report_generator import generate_html_report, generate_pdf_report
 from scanner.engine.scan_engine import (DEFAULT_MODULES, build_config, build_secrets,
-                                        create_scan,
+                                        cancel_scan, create_scan,
                                         start_scan_in_background)
 from scanner.target_manager import TargetError
 
@@ -164,6 +164,17 @@ def api_start_scan():
     start_scan_in_background(db_path(), scan_id, target_url, config, build_secrets(data))
     logger.info("Started scan %s for %s", scan_id, target_url)
     return jsonify(scan_id=scan_id, target_url=target_url), 201
+
+
+@dashboard_bp.route("/api/scans/<int:scan_id>/cancel", methods=["POST"])
+def api_cancel_scan(scan_id):
+    if not request_is_from_dashboard():
+        return jsonify(error="Requests must come from the dashboard as JSON."), 403
+    if db.get_scan(db_path(), scan_id) is None:
+        return jsonify(error="Scan not found"), 404
+    if not cancel_scan(scan_id):
+        return jsonify(error="This scan is not running."), 409
+    return jsonify(cancelling=True)
 
 
 @dashboard_bp.route("/api/scans/<int:scan_id>")

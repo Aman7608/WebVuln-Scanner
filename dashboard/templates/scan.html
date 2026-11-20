@@ -83,7 +83,11 @@
     <span id="progress-percent">0%</span>
   </div>
   <p class="dim" id="progress-counts"></p>
+  <button type="button" class="btn btn-danger" id="cancel-button">Cancel scan</button>
 </section>
 {% endblock %}
 
-{% block scripts %}<script src="{{ url_for('static', filename='js/scan.js') }}"></script>{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/cancel.js') }}"></script>
+<script src="{{ url_for('static', filename='js/scan.js') }}"></script>
+{% endblock %}
