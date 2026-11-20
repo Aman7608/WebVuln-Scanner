@@ -86,3 +86,23 @@ def test_crawler_finds_api_hidden_in_javascript(handler, lab_url):
     result = Crawler(handler, lab_url + "/shop", max_depth=1, max_pages=10).crawl()
     assert lab_url + "/static/shop.js" in result.scripts
     assert ("GET", lab_url + "/api/items") in {(p.method, p.url) for p in result.injection_points}
+
+
+def test_only_one_safe_submit_button_is_sent():
+    # Like DVWA's guestbook: sending both buttons would also clear the guestbook
+    html = """<form method="post"><input name="txtName">
+        <input type="submit" name="btnSign" value="Sign Guestbook">
+        <input type="submit" name="btnClear" value="Clear Guestbook"></form>
+        <form><input name="q"><input type="submit" name="del" value="Delete all"></form>"""
+    sign_form, delete_form = parse_forms(BeautifulSoup(html, "html.parser"), "http://site/")
+    assert sign_form.default_values() == {"txtName": "", "btnSign": "Sign Guestbook"}
+    assert delete_form.default_values() == {"q": ""}   # dangerous button is never sent
+
+
+def test_stored_xss_through_crawler_does_not_clear_guestbook(handler, lab_url):
+    from scanner.analysis.findings_collector import FindingsCollector
+    from scanner.vulnerabilities.stored_xss_scanner import scan_stored_xss
+    result = Crawler(handler, lab_url + "/guestbook", max_depth=0, max_pages=1).crawl()
+    collector = FindingsCollector()
+    scan_stored_xss(handler, result.injection_points, [lab_url + "/guestbook"], collector)
+    assert {f.parameter for f in collector.findings} == {"name", "message"}

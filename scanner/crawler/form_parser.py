@@ -11,6 +11,9 @@ from urllib.parse import urljoin
 # Input types that do not take free text, so we do not inject into them
 NON_TEXT_INPUT_TYPES = {"submit", "button", "image", "reset", "file"}
 
+# Submit buttons with these words are never "clicked" by the scanner
+DANGEROUS_BUTTON_WORDS = ("clear", "delete", "remove", "reset", "drop", "erase", "logout", "cancel")
+
 
 @dataclass
 class FormField:
@@ -46,6 +49,7 @@ def parse_forms(soup, page_url):
             method = "GET"
 
         fields = []
+        submit_buttons = []
         for tag in form_tag.find_all(["input", "textarea", "select"]):
             name = tag.get("name")
             if not name:
@@ -65,9 +69,27 @@ def parse_forms(soup, page_url):
                 default = tag.get("value", "")
                 if input_type in NON_TEXT_INPUT_TYPES and input_type != "submit":
                     continue
+                if input_type == "submit":
+                    submit_buttons.append(FormField(name, input_type, default))
+                    continue
                 if input_type in ("checkbox", "radio") and not default:
                     default = "on"
                 fields.append(FormField(name, input_type, default))
 
+        # A browser only sends the ONE button that was clicked. Sending every
+        # button could also "click" a Clear or Delete button by accident.
+        button = choose_submit_button(submit_buttons)
+        if button is not None:
+            fields.append(button)
+
         forms.append(Form(page_url=page_url, action=action, method=method, fields=fields))
     return forms
+
+
+def choose_submit_button(buttons):
+    """Pick the first submit button that does not sound dangerous."""
+    for button in buttons:
+        text = f"{button.name} {button.value}".lower()
+        if not any(word in text for word in DANGEROUS_BUTTON_WORDS):
+            return button
+    return None  # only dangerous buttons: send none at all

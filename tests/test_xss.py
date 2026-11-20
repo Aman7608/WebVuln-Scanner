@@ -51,7 +51,7 @@ def test_no_false_positive_on_escaped_page(handler, lab_url):
 def test_detects_stored_xss(handler, lab_url):
     from scanner.vulnerabilities.stored_xss_scanner import scan_stored_xss
     collector = FindingsCollector()
-    guestbook = InjectionPoint("POST", lab_url + "/guestbook", {"name": "", "message": ""},
+    guestbook = InjectionPoint("POST", lab_url + "/guestbook", {"name": "", "message": "", "sign": "Sign"},
                                "form", lab_url + "/guestbook")
     contact = InjectionPoint("POST", lab_url + "/contact", {"email": "", "message": "", "topic": "general"},
                              "form", lab_url + "/contact", test_params=["email", "message"])

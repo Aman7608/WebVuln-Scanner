@@ -232,8 +232,11 @@ def order():
 @lab.route("/guestbook", methods=["GET", "POST"])
 def guestbook():
     if request.method == "POST":
-        GUESTBOOK.append((request.form.get("name", ""), request.form.get("message", "")))
-        del GUESTBOOK[:-50]  # keep only the last 50 entries
+        if "clear" in request.form:
+            GUESTBOOK.clear()   # like DVWA's "Clear Guestbook" button
+        elif "sign" in request.form:
+            GUESTBOOK.append((request.form.get("name", ""), request.form.get("message", "")))
+            del GUESTBOOK[:-50]  # keep only the last 50 entries
         return redirect("/guestbook")
     # BUG: saved entries are shown without escaping
     entries = "".join(f"<li><b>{name}</b>: {message}</li>" for name, message in GUESTBOOK)
@@ -241,7 +244,8 @@ def guestbook():
 <form method="post">
   <input type="text" name="name" value="">
   <textarea name="message"></textarea>
-  <input type="submit" value="Sign">
+  <input type="submit" name="sign" value="Sign">
+  <input type="submit" name="clear" value="Clear guestbook">
 </form>""")
 
 
