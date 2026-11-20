@@ -1,10 +1,13 @@
 # WebVuln Scanner
 
+[![tests](https://github.com/Aman7608/WebVuln-Scanner/actions/workflows/tests.yml/badge.svg)](https://github.com/Aman7608/WebVuln-Scanner/actions/workflows/tests.yml)
+
 A beginner-friendly web application vulnerability scanner written in Python and Flask.
 
 You give it the URL of a website you are allowed to test. It crawls the site, finds the pages, forms and
 URL parameters (also API addresses hidden in JavaScript files), and then checks them for common security
-problems: reflected and stored XSS, SQL injection (error, boolean and time-based), open redirects, missing
+problems: reflected and stored XSS, SQL injection (error, boolean and time-based), command injection,
+open redirects, missing
 security headers and exposed files. It can log in first to test pages behind a login. Everything is saved
 in a SQLite database, shown on a dark web dashboard, and can be exported as an HTML or PDF report.
 
@@ -32,13 +35,15 @@ and for testing your own apps, not for replacing professional tools.
 | **Reflected XSS** | Sends a harmless, random marker and checks if it turns into a real HTML tag or attribute. Escaped output is *not* reported |
 | **Stored XSS** (opt-in) | Submits a unique marker into every form field, then reloads the pages and checks if a marker now shows up as a real tag |
 | **SQL injection detection** | Error-based (database error messages, then confirms), boolean-based ("always true" vs "always false" pages) and time-based blind (`SLEEP`/`pg_sleep`, confirmed twice). Never sends destructive SQL |
+| **Command injection detection** | Asks the server's shell to wait (`;sleep 3`, `|sleep 3`, `$(sleep 3)`, Windows `ping -n 4 127.0.0.1`) and confirms the delay twice. Never runs harmful commands |
 | **Open redirect detection** | Tests redirect-like parameters with `https://example.com/...` and reads the `Location` header without following it |
 | **Security header analyzer** | Checks CSP, X-Frame-Options, HSTS, X-Content-Type-Options, Referrer-Policy (missing **and** weak values) and version leaks in `Server` / `X-Powered-By` |
 | **Directory discovery** | Checks about 30 common paths (`/.env`, `/.git/HEAD`, `/admin/`, `/backup/` ...), records every status code, detects "soft 404" pages and hides secrets in the evidence |
 | **Findings + risk engine** | Every finding has name, URL, parameter, severity, confidence, description, evidence and fix. Severity comes from a fixed formula, not guesswork |
 | **Database** | SQLite stores targets, scans (status, timestamps, settings), discovered URLs and findings |
-| **Reports** | HTML report (view or download) and PDF report (ReportLab) |
-| **Dashboard** | Totals, severity chart, recent scans, new scan form with live progress, results with filters, scan history |
+| **Reports and export** | HTML report (view or download), PDF report (ReportLab), and JSON / CSV export of findings (CSV cells are protected against "CSV injection") |
+| **Dashboard** | Totals, severity chart, recent scans, new scan form with live progress and a Cancel button, results with filters, scan history |
+| **Safe form handling** | Like a browser, only one submit button is sent per form, and never one named Clear, Delete, Reset or Logout |
 
 ---
 
@@ -73,12 +78,13 @@ flowchart TD
     Mods --> XSS[xss_scanner.py]
     Mods --> SXSS[stored_xss_scanner.py]
     Mods --> SQLI[sqli_scanner.py]
+    Mods --> CMD[command_injection_scanner.py]
     Mods --> RED[redirect_scanner.py]
     Mods --> HDR[header_analyzer.py]
     Mods --> DIR[directory_scanner.py]
-    Crawler & Auth & XSS & SXSS & SQLI & RED & HDR & DIR -->|every HTTP request| RH[request_handler.py<br/>scope, exclusions, timeout, limit, delay]
+    Crawler & Auth & XSS & SXSS & SQLI & CMD & RED & HDR & DIR -->|every HTTP request| RH[request_handler.py<br/>scope, exclusions, timeout, limit, delay]
     RH -->|HTTP| Target[(Target website)]
-    XSS & SXSS & SQLI & RED & HDR & DIR -->|Finding objects| FC[findings_collector.py]
+    XSS & SXSS & SQLI & CMD & RED & HDR & DIR -->|Finding objects| FC[findings_collector.py]
     FC --> RA[risk_assessment.py<br/>severity formula]
     Engine -->|save results + progress| DB[(SQLite<br/>database/db.py)]
     Routes -->|read results| DB
@@ -116,6 +122,8 @@ WebVuln Scanner/
 │   │   ├── xss_scanner.py
 │   │   ├── stored_xss_scanner.py
 │   │   ├── sqli_scanner.py     # error, boolean and time-based
+│   │   ├── command_injection_scanner.py
+│   │   ├── timing.py           # shared "make the server wait" logic
 │   │   ├── redirect_scanner.py
 │   │   ├── header_analyzer.py
 │   │   └── directory_scanner.py
@@ -137,7 +145,8 @@ WebVuln Scanner/
 │   └── templates/              # base, index, scan, results, history, error
 ├── static/css, static/js       # dark theme + progress/filter scripts
 ├── test_lab/vulnerable_app.py  # deliberately vulnerable site for testing (127.0.0.1 only)
-├── tests/                      # pytest test suite
+├── tests/                      # pytest test suite (also run by GitHub Actions)
+├── .github/workflows/tests.yml # runs the tests on every push
 └── docs/                       # demo.gif and screenshots
 ```
 
@@ -271,18 +280,23 @@ docker run -d --name wvs-dvwa -p 127.0.0.1:8081:80 vulnerables/web-dvwa
 - add `security` to the excluded paths, so the scan doesn't change DVWA's security level halfway through
 - Stored XSS ticked
 
-Result (security level *low*, 27 pages, 368 requests, about 30 seconds), all real DVWA vulnerabilities:
+Result (security level *low*, 27 pages, about 400 requests, under a minute), all real DVWA vulnerabilities:
 
 | Severity | Finding | Where |
 |---|---|---|
 | Critical | SQL injection (error-based) | `/vulnerabilities/sqli/` `id`, `/vulnerabilities/brute/` `username` |
 | Critical | SQL injection (time-based blind) | `/vulnerabilities/sqli_blind/` `id` |
-| Critical | Stored XSS | `/vulnerabilities/xss_s/` `mtxMessage` |
+| Critical | OS command injection (time-based) | `/vulnerabilities/exec/` `ip` |
+| Critical | Stored XSS | `/vulnerabilities/xss_s/` `txtName` and `mtxMessage` |
 | High | Reflected XSS | `/vulnerabilities/xss_r/` `name`, `/sqli/` `id`, `/brute/` `username`, `/xss_s/`, `/csp/` `include` |
 | Medium | Exposed `phpinfo.php`, missing CSP / X-Frame-Options, plain HTTP | |
 
-Not found (expected): DOM XSS (`/xss_d/`), command injection, file inclusion, CSRF and file upload. This
-scanner has no checks for those.
+Not found (expected): DOM XSS (`/xss_d/`), file inclusion, CSRF and file upload. This scanner has no
+checks for those.
+
+> **A bug DVWA helped me find:** the first version sent *every* submit button of a form. DVWA's guestbook
+> has "Sign" and "Clear" buttons, so each test also cleared the guestbook and hid the stored XSS in the
+> name field. Now only one safe button is sent, like a real browser does.
 
 **Juice Shop** (http://127.0.0.1:3000). Juice Shop is an Angular single-page app, so the normal links only
 lead to one page. The JavaScript endpoint discovery found 80 API paths in `main.js`, including
@@ -317,7 +331,8 @@ is needed. They check:
   API paths found in JavaScript (normal strings and template strings)
 - login with a CSRF-protected form, wrong passwords, cookies, excluded paths (the scan never logs itself
   out), and that the password is never stored in the database, results page or report
-- reflected XSS, stored XSS, SQLi (error, boolean, time-based, and in a JSON API) and open redirect:
+- reflected XSS, stored XSS, SQLi (error, boolean, time-based, and in a JSON API), command injection
+  and open redirect:
   **detected** on the vulnerable pages and **not reported** on the safe twin pages
 - security headers with fake responses (missing, weak, and secure cases)
 - directory discovery, status codes and secret hiding
@@ -327,6 +342,12 @@ is needed. They check:
   (including that payloads are escaped)
 
 ---
+
+## Explaining this project
+
+See [docs/INTERVIEW_NOTES.md](docs/INTERVIEW_NOTES.md): a 30-second pitch, answers to likely interview
+questions (how false positives are avoided, why the payloads are safe, how severity works), and a
+five-minute demo script.
 
 ## Limitations
 
@@ -342,17 +363,16 @@ is needed. They check:
 - **Small path list** for directory discovery, on purpose. This is not a brute-forcer.
 - **Forms are really submitted** during testing (for example the login and contact forms). On a real
   app this can create log entries, emails or database rows. Only scan test environments.
-- One scan runs in a simple background thread. There's no job queue, and closing the app stops running
-  scans (they are marked as failed on the next start).
+- One scan runs in a simple background thread. There's no job queue. Closing the app stops running scans
+  (they are marked as failed on the next start). Use the Cancel button to stop one cleanly.
+- Command injection is only detected with timing (`sleep`), so a page that runs the command in the
+  background (without waiting) is missed.
 - Automated results always need a human to confirm them.
 
 ## Future improvements
 
 - Optional headless-browser crawling (for example Playwright) for JavaScript apps and DOM XSS
 - Testing JSON/POST APIs found in JavaScript
-- A cancel button for running scans
-- Export findings as JSON/CSV
-- Optional headless browser crawling for JavaScript-heavy sites
 - Compare two scans of the same target to see what was fixed
 
 ---
