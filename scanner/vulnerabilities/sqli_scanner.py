@@ -39,6 +39,7 @@ import re
 from config import settings
 from scanner.analysis.findings_collector import Finding, short_snippet
 from scanner.engine.request_handler import RequestLimitReached
+from scanner.vulnerabilities.timing import find_time_delay
 
 logger = logging.getLogger(__name__)
 
@@ -205,51 +206,15 @@ TIME_PAYLOADS = [
 ]
 
 
-def seconds(response):
-    """How long the server took to answer (requests measures this for us)."""
-    return response.elapsed.total_seconds()
-
-
-def time_based_test(handler, point, param, original_value, baseline, collector,
-                    delay=None):
-    delay = delay or settings.SQLI_TIME_DELAY
-    if handler.timeout < delay * 2 + 2:
-        return False  # the request would time out before we could measure the delay
-
-    second_baseline = handler.send_payload(point, param, original_value)
-    if second_baseline is None:
+def time_based_test(handler, point, param, original_value, baseline, collector):
+    result = find_time_delay(handler, point, param, original_value, TIME_PAYLOADS,
+                             settings.SQLI_TIME_DELAY)
+    if result is None:
         return False
-    normal_time = max(seconds(baseline), seconds(second_baseline))
-    if normal_time > 5:
-        return False  # the page is too slow to measure reliably
-
-    def extra_time(payload_template, wait):
-        response = handler.send_payload(point, param, payload_template.format(v=original_value, d=wait))
-        return None if response is None else seconds(response) - normal_time
-
-    for database, template in TIME_PAYLOADS:
-        slow = extra_time(template, delay)
-        if slow is None or slow < delay * 0.8:
-            continue
-        fast = extra_time(template, 0)              # same payload, no waiting
-        if fast is None or fast > delay * 0.5:
-            continue
-        slow_again = extra_time(template, delay)    # repeat to rule out a slow network
-        if slow_again is None or slow_again < delay * 0.8:
-            continue
-
-        evidence = (
-            f"Normal response time: {normal_time:.2f}s\n"
-            f"{param}={template.format(v=original_value, d=delay)} -> +{slow:.2f}s, "
-            f"again -> +{slow_again:.2f}s\n"
-            f"{param}={template.format(v=original_value, d=0)} -> +{fast:.2f}s\n"
-            f"Payload style: {database}"
-        )
-        collector.add(Finding(
-            name="SQL Injection (time-based blind)",
-            vuln_type="sql_injection",
-            url=point.url, parameter=param, confidence="High",
-            description=DESCRIPTION, evidence=evidence, remediation=REMEDIATION,
-        ))
-        return True
-    return False
+    collector.add(Finding(
+        name="SQL Injection (time-based blind)",
+        vuln_type="sql_injection",
+        url=point.url, parameter=param, confidence="High",
+        description=DESCRIPTION, evidence=result["evidence"], remediation=REMEDIATION,
+    ))
+    return True
