@@ -9,6 +9,10 @@
   </div>
 </div>
 
+{% if current_user.must_change_password %}
+<div class="alert alert-warn"><strong>An administrator reset your password.</strong> Please choose a new password
+  below before you continue. Use the temporary password as your "current password".</div>
+{% endif %}
 {% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
 {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
 

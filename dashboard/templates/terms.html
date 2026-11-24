@@ -15,7 +15,7 @@
   <ul>
     <li>It visits pages and sends test inputs to forms and links (for example a single quote or a harmless HTML tag).</li>
     <li>It never sends commands meant to delete or change data, but forms are really submitted, so test data such as comments may be created. The "Stored XSS" check is off unless you turn it on.</li>
-    <li>It can make your website slower while it runs. Public limits: up to {{ settings.PUBLIC_MAX_PAGES }} pages and {{ settings.PUBLIC_MAX_REQUESTS }} requests per scan, {{ settings.SCANS_PER_DAY }} scans per day.</li>
+    <li>It can make your website slower while it runs. Public limits: up to {{ settings.PUBLIC_MAX_PAGES }} pages and {{ settings.PUBLIC_MAX_REQUESTS }} requests per scan, {{ live.scans_per_day }} scans per day.</li>
     <li>Results come from an automated tool. They can be wrong or incomplete. Check every finding yourself.</li>
   </ul>
 
@@ -23,7 +23,7 @@
   <ul>
     <li>We store your email, a hash of your password (never the password itself), your websites and your scan results.</li>
     <li>Passwords you give for scanning a login page are encrypted while the scan waits and deleted when it starts. They are never stored in results or reports.</li>
-    <li>Finished scans are deleted automatically after {{ settings.RETENTION_DAYS }} days. You can delete scans or your whole account at any time under "Account".</li>
+    <li>Finished scans are deleted automatically after {{ live.retention_days }} days. You can delete scans or your whole account at any time under "Account".</li>
     <li>For security we keep a log of actions such as logins and started scans, with the IP address.</li>
   </ul>
 

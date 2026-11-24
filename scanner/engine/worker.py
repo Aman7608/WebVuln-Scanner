@@ -26,7 +26,7 @@ import socket
 import threading
 import time
 
-from config import settings
+from config import live_settings, settings
 from database import db
 from scanner.engine import notify
 from scanner.engine.scan_engine import run_scan
@@ -59,7 +59,9 @@ def run_one(db_path):
 
 def housekeeping(db_path, stale_minutes=settings.STALE_SCAN_MINUTES):
     failed = db.fail_stale_scans(db_path, stale_minutes)
-    deleted = db.delete_old_scans(db_path, settings.RETENTION_DAYS) if settings.PUBLIC_MODE else 0
+    deleted = 0
+    if settings.PUBLIC_MODE:
+        deleted = db.delete_old_scans(db_path, live_settings.get(db_path, "retention_days"))
     if failed or deleted:
         logger.info("Housekeeping: %d stale scans failed, %d old scans deleted", failed, deleted)
 

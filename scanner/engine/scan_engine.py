@@ -109,10 +109,12 @@ def check_quota(db_path, user_id):
     """Public mode: a daily scan limit and only one scan at a time per user."""
     if not settings.PUBLIC_MODE or user_id is None:
         return
-    if db.count_active_scans(db_path, user_id) >= settings.MAX_RUNNING_SCANS_PER_USER:
+    from config import live_settings   # imported here: live_settings needs the database module
+    if db.count_active_scans(db_path, user_id) >= live_settings.get(db_path, "max_running_scans_per_user"):
         raise QuotaError("You already have a scan waiting or running. Wait for it to finish.")
-    if db.count_scans_since(db_path, user_id, db.time_ago(days=1)) >= settings.SCANS_PER_DAY:
-        raise QuotaError(f"You have reached the limit of {settings.SCANS_PER_DAY} scans per "
+    per_day = live_settings.get(db_path, "scans_per_day")
+    if db.count_scans_since(db_path, user_id, db.time_ago(days=1)) >= per_day:
+        raise QuotaError(f"You have reached the limit of {per_day} scans per "
                          "24 hours. Please try again later.")
 
 

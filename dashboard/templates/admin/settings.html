@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% from "admin/_tabs.html" import admin_tabs %}
+{% block title %}Admin · Settings{% endblock %}
+
+{% block content %}
+{{ admin_tabs('admin.settings_page') }}
+
+<section class="card">
+  <h2>Settings you can change here</h2>
+  <p class="dim">Changes apply straight away to the web app and all workers. No restart is needed.</p>
+  {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+  <form method="post" class="form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {% for field in fields %}
+      {% if field.kind == 'bool' %}
+      <label class="check"><input type="checkbox" name="{{ field.name }}" {{ 'checked' if values[field.name] }}> {{ field.label }}</label>
+      {% else %}
+      <label class="field"><span>{{ field.label }}</span>
+        <input type="number" name="{{ field.name }}" value="{{ values[field.name] }}" min="{{ field.low }}" max="{{ field.high }}" required>
+        <small class="dim">Between {{ field.low }} and {{ field.high }}.</small></label>
+      {% endif %}
+    {% endfor %}
+    <div><button type="submit" class="btn">Save settings</button></div>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Fixed settings</h2>
+  <p class="dim">These come from <code>config/settings.py</code> or the <code>.env</code> file and need a restart to change.</p>
+  <div class="table-wrap"><table class="table">
+    <tbody>{% for name, value in fixed.items() %}
+      <tr><td class="dim">{{ name }}</td><td class="mono">{{ value }}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+</section>
+{% endblock %}

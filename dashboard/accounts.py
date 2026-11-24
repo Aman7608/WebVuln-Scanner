@@ -11,7 +11,7 @@ Account pages: sign up, log in, log out, and the "Account" page.
 from flask import (Blueprint, current_app, flash, g, redirect, render_template, request,
                    session, url_for)
 
-from config import settings
+from config import live_settings, settings
 from dashboard.security import (audit, clean_email, client_ip, hash_password, log_user_in,
                                 login_required, password_matches, password_problem,
                                 safe_next_url)
@@ -26,7 +26,7 @@ def db_path():
 
 def registration_allowed():
     # Even with sign-up closed, the very first (admin) account can be created
-    return settings.REGISTRATION_OPEN or db.count_users(db_path()) == 0
+    return live_settings.get(db_path(), "registration_open") or db.count_users(db_path()) == 0
 
 
 @accounts_bp.route("/register", methods=["GET", "POST"])
@@ -83,15 +83,21 @@ def login():
                      "minutes and try again.")
         else:
             user = db.get_user_by_email(db_path(), email)
-            if user and password_matches(user["password_hash"], password):
+            right_password = bool(user) and password_matches(user["password_hash"], password)
+            if right_password and user["is_blocked"]:
+                # Only say "blocked" to someone who knows the password
+                audit("login_blocked", email, user=user)
+                error = "This account is blocked. Please contact the administrator."
+            elif right_password:
                 db.record_login_attempt(db_path(), email, ip, success=True)
                 db.record_login(db_path(), user["id"])
                 log_user_in(user)
                 audit("login", user=user)
                 return redirect(safe_next_url(request.args.get("next")))
-            db.record_login_attempt(db_path(), email, ip, success=False)
-            audit("login_failed", email, user=None)
-            error = "Wrong email or password."
+            else:
+                db.record_login_attempt(db_path(), email, ip, success=False)
+                audit("login_failed", email, user=None)
+                error = "Wrong email or password."
     return render_template("login.html", error=error, email=email,
                            can_register=registration_allowed(),
                            no_users=db.count_users(db_path()) == 0)
@@ -144,5 +150,5 @@ def account():
     from scanner.engine.notify import email_enabled
     return render_template("account.html", message=message, error=error,
                            email_enabled=email_enabled(),
-                           retention_days=settings.RETENTION_DAYS,
+                           retention_days=live_settings.get(db_path(), "retention_days"),
                            activity=db.list_audit_log(db_path(), user_id=g.user["id"], limit=30))

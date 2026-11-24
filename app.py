@@ -24,7 +24,7 @@ from dashboard.accounts import accounts_bp
 from dashboard.admin import admin_bp
 from dashboard.domains import domains_bp
 from dashboard.routes import dashboard_bp
-from dashboard.security import check_csrf, csrf_token, load_current_user
+from dashboard.security import check_csrf, csrf_token, force_password_change, load_current_user
 from database import db
 
 
@@ -64,6 +64,7 @@ def create_app(database_path=None, start_worker=None):
     def before_every_request():
         load_current_user()
         check_csrf()
+        return force_password_change()
 
     @app.context_processor
     def template_helpers():

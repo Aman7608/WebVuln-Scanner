@@ -396,3 +396,19 @@ textarea { min-height: 130px; resize: vertical; }
 .settings-block { border-top: 1px solid var(--border); padding-top: 16px; margin-top: 16px; }
 .settings-block:first-of-type { border-top: 0; padding-top: 0; margin-top: 0; }
 .danger-zone { border-color: rgba(255, 77, 109, 0.4); }
+
+/* ---------- admin area ---------- */
+.tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
+.tab { color: var(--dim); padding: 8px 14px; border-bottom: 2px solid transparent; font-size: 14px; }
+.tab:hover { color: var(--text); text-decoration: none; }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.actions-cell { white-space: nowrap; }
+.actions-cell form { margin-right: 4px; }
+.alert-warn strong { color: #fde68a; }
+.big-code { font-size: 18px; padding: 10px 14px; letter-spacing: 0.04em; }
+.small-note-bottom { font-size: 13px; margin-top: 12px; }
+.badge-ok, .badge-wait, .status { white-space: nowrap; display: inline-block; }
+.users-table td { word-break: normal; }
+.users-table td:nth-child(2), .users-table td:nth-child(4), .users-table td:nth-child(5) { white-space: nowrap; }
+.auth-card .btn-small { width: auto; padding: 4px 10px; }
+.auth-card a.btn { text-align: center; }

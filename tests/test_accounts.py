@@ -161,7 +161,8 @@ def test_abuse_report_reaches_admin(client):
         "csrf_token": csrf_from(client)})
     assert b"Thank you" in response.data
     login(client, "admin@example.com")
-    page = client.get("/admin").data.decode()
+    assert "victim.test" in client.get("/admin").data.decode()        # listed on the overview
+    page = client.get("/admin/reports").data.decode()
     assert "victim.test" in page and "Many requests at 10:00" in page
 
 

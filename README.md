@@ -61,7 +61,8 @@ and for testing your own apps, not for replacing professional tools.
 | **SSRF protection** | Every connection is checked *at connect time*. Public mode never reaches 127.0.0.1, 10.x, 192.168.x, cloud metadata and so on, even if a domain switches its IP mid-scan (DNS rebinding) |
 | **Scan queue and workers** | Scans wait in the database and separate worker processes run them. They survive restarts and scale with more workers. Login passwords are encrypted while queued and wiped when the scan starts |
 | **Quotas** | Public mode: 1 scan at a time, 5 per day, max 50 pages and 1000 requests, at least 0.2 s between requests |
-| **Audit log, abuse reports, admin** | Logins, scans and deletions are logged with IP. Anyone can report abuse, and the admin sees reports next to the scans of that website |
+| **Audit log and abuse reports** | Logins, scans and deletions are logged with IP. Anyone can report abuse, and the admin sees reports next to the scans of that website |
+| **Admin area** | Overview numbers (users, scans today, waiting/running, failed, open reports). **Users:** block/unblock (logs them out and cancels their scans), make or remove admin, reset password (a one-time temporary password, and the user must pick a new one), delete. **All scans** of every user with a status filter. **Settings:** sign-up, daily quota, scans at once and data retention, changed live without a restart. **Searchable audit log.** The last admin can never be removed |
 | **Your data** | Users can delete scans or their whole account. Public mode deletes scans older than 30 days. Optional email when a scan finishes |
 | **Production setup** | Waitress web server, PostgreSQL, Caddy with automatic HTTPS, all in `docker-compose.yml` |
 
@@ -141,6 +142,7 @@ WebVuln Scanner/
 ├── worker.py                   # scan worker process, public mode
 ├── config/
 │   ├── settings.py             # mode, allowlist, limits, quotas, database URL
+│   ├── live_settings.py        # settings the admin can change on the Settings page
 │   └── secret_key.py           # secret key for cookies and encryption
 ├── scanner/
 │   ├── target_manager.py       # URL validation, allowlist/ownership, internal address rules, scope
@@ -179,7 +181,7 @@ WebVuln Scanner/
 │   ├── routes.py               # scan pages and JSON API (login required)
 │   ├── accounts.py             # sign up, log in, account page
 │   ├── domains.py              # "My websites" (ownership)
-│   ├── admin.py                # admin area, terms, report abuse
+│   ├── admin.py                # admin area (users, scans, reports, settings, audit), terms, report abuse
 │   ├── security.py             # password hashing, CSRF, login_required
 │   └── templates/              # all the HTML pages
 ├── static/css, static/js       # dark theme + progress/filter scripts
@@ -396,6 +398,8 @@ is needed. They check:
   (including that payloads are escaped)
 - accounts: password hashing, generic login errors, lockout after failed logins, CSRF tokens, safe
   redirect after login, users can't see each other's scans, admin-only pages, account deletion
+- admin: blocking logs a user out and stops login, admin rights, the last admin is protected, password
+  reset forces a new password, all scans, live settings, the audit search
 - ownership verification by file and DNS, and that the check itself can't reach internal addresses
 - SSRF protection: every internal IP range blocked in public mode, DNS rebinding blocked, proxies ignored
 - the queue and worker: order, one worker per scan, encrypted secrets wiped after use, cancel, stale

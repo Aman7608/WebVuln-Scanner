@@ -1,0 +1,15 @@
+{# Tabs shown at the top of every admin page #}
+{% macro admin_tabs(active) -%}
+<div class="page-head">
+  <div>
+    <h1>Admin</h1>
+    <p class="dim">Manage users, scans, abuse reports and settings. Every action here is written to the audit log.</p>
+  </div>
+</div>
+<nav class="tabs">
+  {% for endpoint, label in [('admin.admin_home', 'Overview'), ('admin.users', 'Users'), ('admin.scans', 'All scans'),
+                             ('admin.reports', 'Abuse reports'), ('admin.settings_page', 'Settings'), ('admin.audit_log', 'Audit log')] %}
+  <a href="{{ url_for(endpoint) }}" class="tab {{ 'active' if active == endpoint }}">{{ label }}</a>
+  {% endfor %}
+</nav>
+{%- endmacro %}

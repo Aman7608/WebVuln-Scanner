@@ -19,7 +19,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 
-from database.models import (ACTIVE_STATUSES, INDEXES, NEW_SCAN_COLUMNS, SCHEMA,
+from database.models import (ACTIVE_STATUSES, INDEXES, NEW_SCAN_COLUMNS, NEW_USER_COLUMNS, SCHEMA,
                              STATUS_CANCELLED, STATUS_COMPLETED, STATUS_FAILED,
                              STATUS_QUEUED, STATUS_RUNNING)
 
@@ -104,7 +104,14 @@ def init_db(db_path):
     """Create the tables, and upgrade an older local database if needed."""
     if is_postgres(db_path):
         with connect(db_path) as conn:
-            for statement in _postgres_schema(SCHEMA + INDEXES).split(";"):
+            for statement in _postgres_schema(SCHEMA).split(";"):
+                if statement.strip():
+                    conn.execute(statement)
+            # PostgreSQL can add a column only if it is missing in one statement
+            for table, columns in (("scans", NEW_SCAN_COLUMNS), ("users", NEW_USER_COLUMNS)):
+                for column, definition in columns.items():
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {definition}")
+            for statement in INDEXES.split(";"):
                 if statement.strip():
                     conn.execute(statement)
         return
@@ -114,10 +121,11 @@ def init_db(db_path):
         os.makedirs(folder, exist_ok=True)
     with connect(db_path) as conn:
         conn.raw.executescript(SCHEMA)
-        existing = {row["name"] for row in conn.execute("PRAGMA table_info(scans)").fetchall()}
-        for column, definition in NEW_SCAN_COLUMNS.items():
-            if column not in existing:
-                conn.execute(f"ALTER TABLE scans ADD COLUMN {column} {definition}")
+        for table, columns in (("scans", NEW_SCAN_COLUMNS), ("users", NEW_USER_COLUMNS)):
+            existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+            for column, definition in columns.items():
+                if column not in existing:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
         # Version 1 used the status "pending"; those scans can never finish now
         conn.execute("UPDATE scans SET status = ?, error_message = ? WHERE status = 'pending'",
                      (STATUS_FAILED, "Stopped by an older version of the app."))
@@ -150,9 +158,37 @@ def count_users(db_path):
 def list_users(db_path):
     with connect(db_path) as conn:
         return conn.execute(
-            """SELECT users.id, users.email, users.is_admin, users.created_at, users.last_login_at,
+            """SELECT users.id, users.email, users.is_admin, users.is_blocked, users.created_at,
+                      users.last_login_at, users.must_change_password,
                       (SELECT COUNT(*) FROM scans WHERE scans.user_id = users.id) AS scan_count
                FROM users ORDER BY users.id""").fetchall()
+
+
+def count_admins(db_path):
+    with connect(db_path) as conn:
+        return conn.execute("SELECT COUNT(*) AS total FROM users WHERE is_admin = 1").fetchone()["total"]
+
+
+def set_admin(db_path, user_id, is_admin):
+    with connect(db_path) as conn:
+        conn.execute("UPDATE users SET is_admin = ? WHERE id = ?", (1 if is_admin else 0, user_id))
+
+
+def set_blocked(db_path, user_id, blocked):
+    """Block or unblock a user. Blocking also cancels their waiting and running scans."""
+    with connect(db_path) as conn:
+        conn.execute("UPDATE users SET is_blocked = ? WHERE id = ?", (1 if blocked else 0, user_id))
+    if blocked:
+        for scan in list_scans(db_path, user_id=user_id):
+            if scan["status"] in ACTIVE_STATUSES:
+                request_cancel(db_path, scan["id"])
+
+
+def set_temporary_password(db_path, user_id, password_hash):
+    """Admin password reset: the user must choose a new password at the next login."""
+    with connect(db_path) as conn:
+        conn.execute("UPDATE users SET password_hash = ?, must_change_password = 1 WHERE id = ?",
+                     (password_hash, user_id))
 
 
 def record_login(db_path, user_id):
@@ -168,7 +204,8 @@ def set_email_notifications(db_path, user_id, enabled):
 
 def update_password(db_path, user_id, password_hash):
     with connect(db_path) as conn:
-        conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (password_hash, user_id))
+        conn.execute("UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?",
+                     (password_hash, user_id))
 
 
 def delete_user(db_path, user_id):
@@ -472,6 +509,52 @@ def dashboard_stats(db_path, user_id=None):
     stats = {"total_scans": total_scans, "total_findings": total_findings}
     stats.update({f"count_{k.lower()}": v for k, v in severity_counts(db_path, user_id=user_id).items()})
     return stats
+
+
+def list_all_scans(db_path, status=None, limit=300):
+    """Admin: every user's scans with the owner's email, newest first."""
+    sql = (f"SELECT {SCAN_COLUMNS}, users.email AS user_email FROM scans "
+           "JOIN targets ON targets.id = scans.target_id LEFT JOIN users ON users.id = scans.user_id")
+    params = []
+    if status:
+        sql += " WHERE scans.status = ?"
+        params.append(status)
+    sql += " ORDER BY scans.id DESC LIMIT ?"
+    params.append(limit)
+    with connect(db_path) as conn:
+        return [_scan_from_row(row) for row in conn.execute(sql, params).fetchall()]
+
+
+def service_stats(db_path):
+    """Numbers for the admin overview."""
+    today = datetime.now().strftime("%Y-%m-%d") + " 00:00:00"
+    queries = {
+        "users": ("SELECT COUNT(*) AS total FROM users", ()),
+        "blocked_users": ("SELECT COUNT(*) AS total FROM users WHERE is_blocked = 1", ()),
+        "admins": ("SELECT COUNT(*) AS total FROM users WHERE is_admin = 1", ()),
+        "scans_total": ("SELECT COUNT(*) AS total FROM scans", ()),
+        "scans_today": ("SELECT COUNT(*) AS total FROM scans WHERE started_at >= ?", (today,)),
+        "scans_queued": ("SELECT COUNT(*) AS total FROM scans WHERE status = ?", (STATUS_QUEUED,)),
+        "scans_running": ("SELECT COUNT(*) AS total FROM scans WHERE status = ?", (STATUS_RUNNING,)),
+        "scans_failed": ("SELECT COUNT(*) AS total FROM scans WHERE status = ?", (STATUS_FAILED,)),
+        "findings": ("SELECT COUNT(*) AS total FROM findings", ()),
+        "verified_websites": ("SELECT COUNT(*) AS total FROM domains WHERE verified_at IS NOT NULL", ()),
+        "open_reports": ("SELECT COUNT(*) AS total FROM abuse_reports WHERE status = 'open'", ()),
+    }
+    with connect(db_path) as conn:
+        return {name: conn.execute(sql, params).fetchone()["total"] for name, (sql, params) in queries.items()}
+
+
+# ---------------------------------------------------------------- settings changed by the admin
+def get_saved_settings(db_path):
+    with connect(db_path) as conn:
+        return {row["name"]: row["value"] for row in conn.execute("SELECT name, value FROM app_settings").fetchall()}
+
+
+def save_setting(db_path, name, value):
+    with connect(db_path) as conn:
+        conn.execute("DELETE FROM app_settings WHERE name = ?", (name,))
+        conn.execute("INSERT INTO app_settings (name, value) VALUES (?, ?)", (name, str(value)))
 
 
 # ---------------------------------------------------------------- audit log

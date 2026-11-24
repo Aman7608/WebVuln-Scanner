@@ -19,6 +19,7 @@ Tables:
   audit_log        who did what and when (logins, scans, deletions)
   login_attempts   used to slow down password guessing
   abuse_reports    reports from people who think the scanner was misused
+  app_settings     settings the admin changed on the Settings page
 """
 
 SCHEMA = """
@@ -28,6 +29,8 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash   TEXT NOT NULL,
     is_admin        INTEGER NOT NULL DEFAULT 0,
     notify_by_email INTEGER NOT NULL DEFAULT 0,
+    is_blocked      INTEGER NOT NULL DEFAULT 0,   -- blocked users cannot log in
+    must_change_password INTEGER NOT NULL DEFAULT 0,  -- set after an admin password reset
     created_at      TEXT NOT NULL,
     last_login_at   TEXT
 );
@@ -111,6 +114,11 @@ CREATE TABLE IF NOT EXISTS login_attempts (
     attempted_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS app_settings (
+    name   TEXT PRIMARY KEY,
+    value  TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS abuse_reports (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     reporter_email TEXT NOT NULL,
@@ -138,6 +146,11 @@ NEW_SCAN_COLUMNS = {
     "cancel_requested": "INTEGER NOT NULL DEFAULT 0",
     "heartbeat_at": "TEXT",
     "secrets_enc": "TEXT DEFAULT ''",
+}
+
+NEW_USER_COLUMNS = {
+    "is_blocked": "INTEGER NOT NULL DEFAULT 0",
+    "must_change_password": "INTEGER NOT NULL DEFAULT 0",
 }
 
 # Possible values of scans.status

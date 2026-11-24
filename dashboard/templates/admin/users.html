@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% from "admin/_tabs.html" import admin_tabs %}
+{% block title %}Admin · Users{% endblock %}
+
+{% block content %}
+{{ admin_tabs('admin.users') }}
+
+<section class="card">
+  <h2>Users ({{ users|length }})</h2>
+  <div class="table-wrap"><table class="table users-table">
+    <thead><tr><th>#</th><th>Email</th><th>Status</th><th>Created</th><th>Last login</th><th>Scans</th><th>Actions</th></tr></thead>
+    <tbody>
+    {% for user in users %}
+      <tr>
+        <td class="dim">{{ user.id }}</td>
+        <td>{{ user.email }}{% if user.id == current_user.id %} <span class="dim">(you)</span>{% endif %}</td>
+        <td>
+          {% if user.is_admin %}<span class="badge-ok">admin</span>{% endif %}
+          {% if user.is_blocked %}<span class="status status-failed">blocked</span>{% endif %}
+          {% if user.must_change_password %}<span class="badge-wait">must change password</span>{% endif %}
+          {% if not user.is_admin and not user.is_blocked and not user.must_change_password %}<span class="dim">user</span>{% endif %}
+        </td>
+        <td class="dim">{{ user.created_at[:10] }}</td>
+        <td class="dim">{{ user.last_login_at or '-' }}</td>
+        <td>{{ user.scan_count }}</td>
+        <td class="actions-cell">
+          {% if user.id != current_user.id %}
+          <form method="post" action="{{ url_for('admin.block_user', user_id=user.id) }}" class="inline-form"
+                data-confirm="{{ 'Unblock' if user.is_blocked else 'Block' }} {{ user.email }}?{{ '' if user.is_blocked else ' They are logged out and their scans are cancelled.' }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-ghost btn-small">{{ 'Unblock' if user.is_blocked else 'Block' }}</button>
+          </form>
+          <form method="post" action="{{ url_for('admin.toggle_admin', user_id=user.id) }}" class="inline-form"
+                data-confirm="{{ 'Remove admin rights from' if user.is_admin else 'Make' }} {{ user.email }}{{ '' if user.is_admin else ' an admin' }}?">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-ghost btn-small">{{ 'Remove admin' if user.is_admin else 'Make admin' }}</button>
+          </form>
+          <form method="post" action="{{ url_for('admin.reset_password', user_id=user.id) }}" class="inline-form"
+                data-confirm="Reset the password of {{ user.email }}? Their current password stops working.">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-ghost btn-small">Reset password</button>
+          </form>
+          <form method="post" action="{{ url_for('admin.delete_user', user_id=user.id) }}" class="inline-form"
+                data-confirm="Delete {{ user.email }} and ALL their data? This cannot be undone.">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-danger btn-small btn-inline">Delete</button>
+          </form>
+          {% else %}
+          <span class="dim">Use the Account page</span>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  <p class="dim small-note-bottom">Blocking logs the user out at once, stops new logins and cancels their waiting and running scans.
+    The last admin can never be blocked, demoted or deleted.</p>
+</section>
+{% endblock %}

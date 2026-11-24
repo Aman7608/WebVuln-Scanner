@@ -72,8 +72,24 @@ def load_current_user():
     user_id = session.get("user_id")
     if user_id is not None:
         g.user = db.get_user(current_app.config["DATABASE_PATH"], user_id)
-        if g.user is None:          # account was deleted
+        if g.user is None or g.user["is_blocked"]:   # deleted or blocked: log out at once
+            g.user = None
             session.clear()
+
+
+# Pages a user may still open while they must choose a new password
+ALLOWED_DURING_PASSWORD_CHANGE = {"accounts.account", "accounts.logout", "static",
+                                  "admin.terms", "admin.report_abuse"}
+
+
+def force_password_change():
+    """After an admin reset, the user must set a new password before anything else."""
+    if g.user and g.user["must_change_password"] \
+            and request.endpoint not in ALLOWED_DURING_PASSWORD_CHANGE:
+        if request.path.startswith("/api/"):
+            abort(403, "Please choose a new password first.")
+        return redirect(url_for("accounts.account"))
+    return None
 
 
 def log_user_in(user):
