@@ -11,6 +11,28 @@ import os
 # Folder that contains this project (one level up from this file)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+
+def env_flag(name, default):
+    """Read an on/off environment variable such as WEBVULN_REGISTRATION=0."""
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in ("1", "true", "yes", "on")
+
+
+# ---------------------------------------------------------------------------
+# Mode: "local" or "public"
+# ---------------------------------------------------------------------------
+# local  = on your own computer. Uses the allowlist below, may scan localhost
+#          (for example the test lab). Scans run inside the web app.
+# public = on a server for other people. Every user must PROVE they own a
+#          website before scanning it, internal/private addresses are always
+#          blocked, quotas apply and scans run in a separate worker process.
+MODE = os.environ.get("WEBVULN_MODE", "local").strip().lower()
+if MODE not in ("local", "public"):
+    raise ValueError("WEBVULN_MODE must be 'local' or 'public'")
+PUBLIC_MODE = MODE == "public"
+
 # ---------------------------------------------------------------------------
 # Authorized targets (allowlist)
 # ---------------------------------------------------------------------------
@@ -54,15 +76,58 @@ SQLI_TIME_DELAY = 3
 USER_AGENT = "WebVulnScanner/1.0 (authorized security testing)"
 
 # ---------------------------------------------------------------------------
+# Public mode limits (stop one user from overloading the service or a website)
+# ---------------------------------------------------------------------------
+PUBLIC_MAX_PAGES = 50
+PUBLIC_MAX_REQUESTS = 1000
+PUBLIC_MIN_DELAY = 0.2               # at least 0.2 s between requests
+SCANS_PER_DAY = int(os.environ.get("WEBVULN_SCANS_PER_DAY", "5"))
+MAX_RUNNING_SCANS_PER_USER = 1
+RETENTION_DAYS = int(os.environ.get("WEBVULN_RETENTION_DAYS", "30"))  # old scans are deleted
+
+# Login protection: after this many failed logins, wait before trying again
+LOGIN_MAX_FAILURES = 5
+LOGIN_LOCK_MINUTES = 15
+REGISTRATION_OPEN = env_flag("WEBVULN_REGISTRATION", True)
+
+# ---------------------------------------------------------------------------
 # Storage
 # ---------------------------------------------------------------------------
 INSTANCE_DIR = os.path.join(BASE_DIR, "instance")
+# Either a SQLite file path (default) or a PostgreSQL URL such as
+#   postgresql://webvuln:password@db:5432/webvuln
 DATABASE_PATH = os.environ.get(
-    "WEBVULN_DB_PATH", os.path.join(INSTANCE_DIR, "webvuln.db")
+    "WEBVULN_DATABASE_URL",
+    os.environ.get("WEBVULN_DB_PATH", os.path.join(INSTANCE_DIR, "webvuln.db")),
 )
+
+# Secret key: signs login cookies and encrypts scan passwords while they wait in
+# the queue. In public mode it MUST come from the environment.
+SECRET_KEY = os.environ.get("WEBVULN_SECRET_KEY", "")
+
+# ---------------------------------------------------------------------------
+# Scan workers
+# ---------------------------------------------------------------------------
+# Local mode runs one worker thread inside the web app, so "python app.py"
+# is still all you need. Public mode runs "python worker.py" separately.
+EMBEDDED_WORKER = env_flag("WEBVULN_EMBEDDED_WORKER", not PUBLIC_MODE)
+WORKER_POLL_SECONDS = 1.0
+STALE_SCAN_MINUTES = 3   # a running scan with no progress for this long is marked failed
+
+# ---------------------------------------------------------------------------
+# Email (optional): "your scan has finished" messages
+# ---------------------------------------------------------------------------
+SMTP_HOST = os.environ.get("WEBVULN_SMTP_HOST", "")
+SMTP_PORT = int(os.environ.get("WEBVULN_SMTP_PORT", "587"))
+SMTP_USER = os.environ.get("WEBVULN_SMTP_USER", "")
+SMTP_PASSWORD = os.environ.get("WEBVULN_SMTP_PASSWORD", "")
+SMTP_FROM = os.environ.get("WEBVULN_SMTP_FROM", "")
+PUBLIC_BASE_URL = os.environ.get("WEBVULN_PUBLIC_URL", "").rstrip("/")  # used in email links
 
 # ---------------------------------------------------------------------------
 # Web dashboard
 # ---------------------------------------------------------------------------
-DASHBOARD_HOST = "127.0.0.1"   # only reachable from this computer
+DASHBOARD_HOST = os.environ.get("WEBVULN_HOST", "127.0.0.1")   # local: only this computer
 DASHBOARD_PORT = int(os.environ.get("WEBVULN_PORT", "5000"))
+# Set to 1 when running behind a reverse proxy (Caddy/Nginx) that adds X-Forwarded-* headers
+BEHIND_PROXY = env_flag("WEBVULN_BEHIND_PROXY", False)
