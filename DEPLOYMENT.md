@@ -1,6 +1,10 @@
 # Deploying WebVuln Scanner for other people (public mode)
 
 This guide puts the scanner on a server so other people can sign up and scan **their own** websites.
+
+> **Status:** the Docker / PostgreSQL / Caddy setup in this guide has **not been tested yet**. Public mode was
+> tested with the automated tests and with `serve.py` + `worker.py` on SQLite. Do the
+> "Try it on your own PC first" section below before putting it on the internet.
 If you only want to use it on your own computer, you don't need any of this: `python app.py` is enough.
 
 ---

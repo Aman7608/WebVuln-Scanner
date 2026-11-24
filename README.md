@@ -429,8 +429,9 @@ five-minute demo script.
   progress). It isn't resumed automatically; start it again.
 - Ownership verification proves control of a domain at one moment. If a domain changes owner later, the
   old owner stays verified until they remove it.
-- Public mode was tested locally with Docker, PostgreSQL and Caddy. Running it on the real internet is
-  your responsibility (see the checklist in [DEPLOYMENT.md](DEPLOYMENT.md)).
+- **Not tested yet:** the Docker setup (`docker-compose.yml`) and the PostgreSQL code path. Public mode
+  itself was tested with the automated tests and by running `serve.py` + `worker.py` on SQLite.
+  Try the Docker setup on a test machine before going live (see [DEPLOYMENT.md](DEPLOYMENT.md)).
 - Command injection is only detected with timing (`sleep`), so a page that runs the command in the
   background (without waiting) is missed.
 - Automated results always need a human to confirm them.
