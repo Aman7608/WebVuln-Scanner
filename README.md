@@ -7,9 +7,15 @@ A beginner-friendly web application vulnerability scanner written in Python and 
 You give it the URL of a website you are allowed to test. It crawls the site, finds the pages, forms and
 URL parameters (also API addresses hidden in JavaScript files), and then checks them for common security
 problems: reflected and stored XSS, SQL injection (error, boolean and time-based), command injection,
-open redirects, missing
-security headers and exposed files. It can log in first to test pages behind a login. Everything is saved
-in a SQLite database, shown on a dark web dashboard, and can be exported as an HTML or PDF report.
+open redirects, missing security headers and exposed files. It can log in first to test pages behind a
+login. Everything is saved in a database, shown on a dark web dashboard, and can be exported as HTML,
+PDF, JSON or CSV.
+
+It runs in two modes:
+- **Local mode** (`python app.py`): on your own computer, for your own apps and the included test lab.
+- **Public mode** (Docker): a multi-user service where people sign up, **prove they own a website** and
+  scan it. Every connection is protected against SSRF, with quotas, an audit log, an admin area and HTTPS.
+  See [DEPLOYMENT.md](DEPLOYMENT.md).
 
 It has been tested against its own vulnerable test lab, **DVWA** and **OWASP Juice Shop**
 (see [Results on DVWA and Juice Shop](#results-on-dvwa-and-juice-shop)).
@@ -45,6 +51,20 @@ and for testing your own apps, not for replacing professional tools.
 | **Dashboard** | Totals, severity chart, recent scans, new scan form with live progress and a Cancel button, results with filters, scan history |
 | **Safe form handling** | Like a browser, only one submit button is sent per form, and never one named Clear, Delete, Reset or Logout |
 
+**Multi-user and public deployment (version 2)**
+
+| Feature | What it does |
+|---|---|
+| **User accounts** | Sign up and log in. Passwords are hashed with scrypt, logins are locked after 5 failures, and the first account becomes the admin. Each user only sees their own scans |
+| **CSRF protection** | Every form and every JavaScript POST carries a secret token. Other websites can't start scans or delete data in your browser |
+| **Ownership verification** | Before scanning, users prove they own a site with a file (`/.well-known/webvuln-verify.txt`) or a DNS TXT record. Required in public mode |
+| **SSRF protection** | Every connection is checked *at connect time*. Public mode never reaches 127.0.0.1, 10.x, 192.168.x, cloud metadata and so on, even if a domain switches its IP mid-scan (DNS rebinding) |
+| **Scan queue and workers** | Scans wait in the database and separate worker processes run them. They survive restarts and scale with more workers. Login passwords are encrypted while queued and wiped when the scan starts |
+| **Quotas** | Public mode: 1 scan at a time, 5 per day, max 50 pages and 1000 requests, at least 0.2 s between requests |
+| **Audit log, abuse reports, admin** | Logins, scans and deletions are logged with IP. Anyone can report abuse, and the admin sees reports next to the scans of that website |
+| **Your data** | Users can delete scans or their whole account. Public mode deletes scans older than 30 days. Optional email when a scan finishes |
+| **Production setup** | Waitress web server, PostgreSQL, Caddy with automatic HTTPS, all in `docker-compose.yml` |
+
 ---
 
 ## Tech stack (and why each one is used)
@@ -55,7 +75,13 @@ and for testing your own apps, not for replacing professional tools.
 | **Flask** | Small web framework for the dashboard and the JSON API. Easier to learn than Django |
 | **Requests** | Sends the HTTP requests. Gives full control over redirects, timeouts and cookies |
 | **BeautifulSoup** | Parses HTML to find links and forms, and to check if an XSS marker became a real tag |
-| **SQLite** (built into Python) | Stores everything in one file, no database server needed |
+| **SQLite** (built into Python) | Local mode: stores everything in one file, no database server needed |
+| **PostgreSQL + psycopg** | Public mode: handles many users and several workers at once |
+| **Waitress** | Production web server (pure Python, works on Windows and Linux) |
+| **Caddy** | Reverse proxy that gets free HTTPS certificates automatically |
+| **cryptography (Fernet)** | Encrypts scan login passwords while they wait in the queue |
+| **dnspython** | Reads DNS TXT records for ownership verification |
+| **Docker Compose** | Starts web, worker, database and Caddy together with one command |
 | **ReportLab** | Builds the PDF report in pure Python |
 | **Jinja2** (comes with Flask) | HTML templates with auto-escaping, so payloads in evidence can't run in the dashboard or report |
 | **HTML / CSS / JavaScript** | The dashboard. Plain JS only, no frameworks |
@@ -110,10 +136,15 @@ flowchart TD
 
 ```
 WebVuln Scanner/
-├── app.py                      # starts the Flask app (python app.py)
-├── config/settings.py          # allowlist, limits, database path
+├── app.py                      # builds the Flask app; "python app.py" = local mode
+├── serve.py                    # production web server (Waitress), public mode
+├── worker.py                   # scan worker process, public mode
+├── config/
+│   ├── settings.py             # mode, allowlist, limits, quotas, database URL
+│   └── secret_key.py           # secret key for cookies and encryption
 ├── scanner/
-│   ├── target_manager.py       # URL validation, allowlist, private IP blocking, scope check
+│   ├── target_manager.py       # URL validation, allowlist/ownership, internal address rules, scope
+│   ├── ownership.py            # prove you own a website (file or DNS)
 │   ├── crawler/
 │   │   ├── crawler.py          # breadth-first crawler, builds injection points
 │   │   ├── url_parser.py       # normalize URLs, extract links/JS endpoints, read parameters
@@ -128,26 +159,36 @@ WebVuln Scanner/
 │   │   ├── header_analyzer.py
 │   │   └── directory_scanner.py
 │   ├── engine/
-│   │   ├── scan_engine.py      # runs all steps, saves progress and results
-│   │   ├── auth.py             # form login and session cookies
+│   │   ├── scan_engine.py      # create_scan (checks + queue) and run_scan (all steps)
+│   │   ├── worker.py           # takes scans from the queue, housekeeping
+│   │   ├── safe_connection.py  # SSRF check on every connection (DNS rebinding safe)
+│   │   ├── secret_box.py       # encrypts login secrets while a scan is queued
+│   │   ├── notify.py           # optional "scan finished" email
+│   │   ├── auth.py             # logging in to the TARGET site (form or cookie)
 │   │   └── request_handler.py  # the only place that sends HTTP requests (scope, limits, exclusions)
 │   └── analysis/
 │       ├── findings_collector.py
 │       └── risk_assessment.py
 ├── database/
-│   ├── models.py               # table definitions (SQL)
-│   └── db.py                   # all database reads and writes
+│   ├── models.py               # table definitions (users, domains, scans, findings, audit log ...)
+│   └── db.py                   # all reads and writes, for SQLite and PostgreSQL
 ├── reports/
 │   ├── report_generator.py     # HTML + PDF
 │   └── templates/report.html
 ├── dashboard/
-│   ├── routes.py               # pages and API
-│   └── templates/              # base, index, scan, results, history, error
+│   ├── routes.py               # scan pages and JSON API (login required)
+│   ├── accounts.py             # sign up, log in, account page
+│   ├── domains.py              # "My websites" (ownership)
+│   ├── admin.py                # admin area, terms, report abuse
+│   ├── security.py             # password hashing, CSRF, login_required
+│   └── templates/              # all the HTML pages
 ├── static/css, static/js       # dark theme + progress/filter scripts
 ├── test_lab/vulnerable_app.py  # deliberately vulnerable site for testing (127.0.0.1 only)
 ├── tests/                      # pytest test suite (also run by GitHub Actions)
 ├── .github/workflows/tests.yml # runs the tests on every push
-└── docs/                       # demo.gif and screenshots
+├── Dockerfile, docker-compose.yml, Caddyfile, .env.example   # public deployment
+├── DEPLOYMENT.md               # how to run it for other people
+└── docs/                       # demo.gif, screenshots, interview notes
 ```
 
 **Changes from the first plan:** I added `test_lab/` (a local vulnerable site, so testing never needs the
@@ -240,9 +281,11 @@ It runs at http://127.0.0.1:5001 and listens **only on your own computer**.
 python app.py
 ```
 
-Open http://127.0.0.1:5000, go to **New Scan**, enter `http://127.0.0.1:5001/`, tick the authorization
-box and press **Start scan**. When the scan finishes you are taken to the results, where you can open
-the HTML report or download the PDF.
+Open http://127.0.0.1:5000 and click **Sign up** to create your account. The first account becomes the
+admin, and any scans from version 1 are moved into it. Then go to **New Scan**, enter
+`http://127.0.0.1:5001/`, tick the authorization box and press **Start scan**. The scan waits in the
+queue for a moment, and a worker inside the app runs it. When it finishes you are taken to the results,
+where you can open the HTML report or download the PDF.
 
 > **Tip (Windows):** type `127.0.0.1` instead of `localhost`. Windows tries IPv6 (`::1`) first for
 > `localhost`, and the lab only listens on IPv4, so each request waits for the IPv6 attempt to fail and
@@ -262,6 +305,17 @@ metadata addresses (`169.254.169.254`) are always blocked.
 **Scanning a site behind a login.** Open the *Login (optional)* box on the New Scan page and enter the
 login page URL plus a **test** username and password, or paste a session cookie copied from your browser.
 For the test lab, use `http://127.0.0.1:5001/account/login` with `tester` / `lab-password`.
+
+**Scanning a real website you own.** Instead of editing the allowlist, go to **My websites**, add your
+domain, and prove ownership with the file or DNS record shown there.
+
+**Running it for other people.** Use public mode with Docker. The full guide is in
+[DEPLOYMENT.md](DEPLOYMENT.md):
+
+```bash
+cp .env.example .env      # fill in your domain and secrets
+docker compose up -d --build
+```
 
 ---
 
@@ -340,6 +394,14 @@ is needed. They check:
 - database storage, SQL-injection-safe queries, scan history
 - the dashboard pages, API safety checks, a full scan through the API, and the HTML/PDF reports
   (including that payloads are escaped)
+- accounts: password hashing, generic login errors, lockout after failed logins, CSRF tokens, safe
+  redirect after login, users can't see each other's scans, admin-only pages, account deletion
+- ownership verification by file and DNS, and that the check itself can't reach internal addresses
+- SSRF protection: every internal IP range blocked in public mode, DNS rebinding blocked, proxies ignored
+- the queue and worker: order, one worker per scan, encrypted secrets wiped after use, cancel, stale
+  scans, data retention, email notifications
+- public mode: ownership required, limits applied, one scan at a time, daily quota, secure cookies, HSTS,
+  and that an old version 1 database is upgraded without losing scans
 
 ---
 
@@ -363,8 +425,12 @@ five-minute demo script.
 - **Small path list** for directory discovery, on purpose. This is not a brute-forcer.
 - **Forms are really submitted** during testing (for example the login and contact forms). On a real
   app this can create log entries, emails or database rows. Only scan test environments.
-- One scan runs in a simple background thread. There's no job queue. Closing the app stops running scans
-  (they are marked as failed on the next start). Use the Cancel button to stop one cleanly.
+- If a worker is stopped in the middle of a scan, that scan is marked failed (after 3 minutes without
+  progress). It isn't resumed automatically; start it again.
+- Ownership verification proves control of a domain at one moment. If a domain changes owner later, the
+  old owner stays verified until they remove it.
+- Public mode was tested locally with Docker, PostgreSQL and Caddy. Running it on the real internet is
+  your responsibility (see the checklist in [DEPLOYMENT.md](DEPLOYMENT.md)).
 - Command injection is only detected with timing (`sleep`), so a page that runs the command in the
   background (without waiting) is missed.
 - Automated results always need a human to confirm them.
