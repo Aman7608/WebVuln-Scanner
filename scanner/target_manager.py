@@ -111,13 +111,14 @@ def is_connection_allowed(hostname, ip_text):
         return True
     if settings.PUBLIC_MODE:
         return False   # public servers never touch internal addresses
-    # Local mode: an internal address is only OK if that IP itself is allowlisted
-    # (e.g. 127.0.0.1), or the host is "localhost" and localhost is allowlisted.
-    # An allowlisted NAME that secretly points inside the network is still blocked.
+    # Local mode: an internal address is only OK when BOTH the name and the IP
+    # are allowlisted (for 127.0.0.1 they are the same). So:
+    #  * an allowlisted name that secretly points inside the network is blocked
+    #  * a random name that suddenly points to 127.0.0.1 (DNS rebinding) is blocked
     hostname = hostname.lower().strip("[]")
-    if hostname == "localhost" and is_host_allowlisted("localhost"):
-        return True
-    return is_host_allowlisted(ip_text)
+    if hostname == "localhost":
+        return is_host_allowlisted("localhost")
+    return is_host_allowlisted(hostname) and is_host_allowlisted(ip_text)
 
 
 def check_target(url, user_id=None, db_path=None):
