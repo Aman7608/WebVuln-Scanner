@@ -13,11 +13,15 @@ This is the "manager" that calls all the other modules in order:
   8. Save everything to the database
 
 Progress is written to the database after each step, so the dashboard can
-show a progress bar while the scan runs in a background thread.
+show a progress bar while a worker (see worker.py) runs the scan.
+
+Starting a scan is split in two:
+  * create_scan() - runs in the web app: checks the target, the user's quota
+                    and the settings, then puts the scan in the queue.
+  * run_scan()    - runs in a worker: does the actual scanning.
 """
 
 import logging
-import threading
 
 from config import settings
 from database import db
@@ -25,6 +29,7 @@ from scanner.analysis.findings_collector import FindingsCollector
 from scanner.crawler.crawler import Crawler
 from scanner.engine.auth import LoginError, apply_cookie_string, login_with_form
 from scanner.engine.request_handler import RequestHandler, RequestLimitReached, ScanCancelled
+from scanner.engine.secret_box import encrypt_secrets
 from scanner.target_manager import TargetError, check_target, is_in_scope, validate_url
 from scanner.vulnerabilities.command_injection_scanner import scan_command_injection
 from scanner.vulnerabilities.directory_scanner import scan_directories
@@ -40,19 +45,15 @@ ALL_MODULES = ["headers", "xss", "stored_xss", "sqli", "cmdi", "redirect", "dire
 # Stored XSS saves test data on the site, so it is only run when the user ticks it
 DEFAULT_MODULES = ["headers", "xss", "sqli", "cmdi", "redirect", "directories"]
 
-# Scans running right now: scan id -> its RequestHandler (used by the Cancel button)
-RUNNING_SCANS = {}
-_running_lock = threading.Lock()
 
 
-def cancel_scan(scan_id):
-    """Ask a running scan to stop. Returns False if the scan is not running here."""
-    with _running_lock:
-        handler = RUNNING_SCANS.get(scan_id)
-    if handler is None:
-        return False
-    handler.cancel_event.set()
-    return True
+class QuotaError(Exception):
+    """Raised when a user has used up their scans for now (public mode)."""
+
+
+def cancel_scan(db_path, scan_id):
+    """Ask a scan to stop. Works from any process: the worker sees the flag in the database."""
+    return db.request_cancel(db_path, scan_id)
 
 
 def clamp(value, low, high):
@@ -95,6 +96,26 @@ def build_config(form):
     }
 
 
+def apply_public_limits(config):
+    """Public mode: stricter limits so one user cannot hammer a website."""
+    if settings.PUBLIC_MODE:
+        config["max_pages"] = min(config["max_pages"], settings.PUBLIC_MAX_PAGES)
+        config["max_requests"] = min(config["max_requests"], settings.PUBLIC_MAX_REQUESTS)
+        config["delay"] = max(config["delay"], settings.PUBLIC_MIN_DELAY)
+    return config
+
+
+def check_quota(db_path, user_id):
+    """Public mode: a daily scan limit and only one scan at a time per user."""
+    if not settings.PUBLIC_MODE or user_id is None:
+        return
+    if db.count_active_scans(db_path, user_id) >= settings.MAX_RUNNING_SCANS_PER_USER:
+        raise QuotaError("You already have a scan waiting or running. Wait for it to finish.")
+    if db.count_scans_since(db_path, user_id, db.time_ago(days=1)) >= settings.SCANS_PER_DAY:
+        raise QuotaError(f"You have reached the limit of {settings.SCANS_PER_DAY} scans per "
+                         "24 hours. Please try again later.")
+
+
 def build_secrets(form):
     """The sensitive login values. Kept in memory only, never in the database."""
     return {
@@ -103,9 +124,16 @@ def build_secrets(form):
     }
 
 
-def create_scan(db_path, target_url, config):
-    """Check the target and create the scan row. Raises TargetError if not allowed."""
-    target = check_target(target_url)
+def create_scan(db_path, target_url, config, user_id=None, secrets=None):
+    """Check everything and put the scan in the queue.
+
+    Raises TargetError (target not allowed) or QuotaError (too many scans).
+    The login password/cookie (secrets) is stored encrypted until a worker
+    starts the scan, then it is wiped.
+    """
+    check_quota(db_path, user_id)
+    target = check_target(target_url, user_id=user_id, db_path=db_path)
+    apply_public_limits(config)
     if config.get("login_url"):
         login_url = validate_url(config["login_url"])
         if not is_in_scope(login_url, target["url"]):
@@ -114,7 +142,8 @@ def create_scan(db_path, target_url, config):
             raise TargetError("Please enter the username for the login page.")
         config["login_url"] = login_url
     target_id = db.get_or_create_target(db_path, target["url"], target["host"])
-    scan_id = db.create_scan(db_path, target_id, config)
+    scan_id = db.create_scan(db_path, target_id, config, user_id=user_id,
+                             secrets_enc=encrypt_secrets(secrets or {}))
     return scan_id, target["url"]
 
 
@@ -136,25 +165,24 @@ def log_in(handler, config, secrets):
     return ", ".join(status), landing_url
 
 
-def run_scan(db_path, scan_id, target_url, config, secrets=None):
-    """Run all scan steps. Always ends with the scan marked completed or failed."""
+def run_scan(db_path, scan_id, target_url, config, secrets=None, user_id=None):
+    """Run all scan steps. Always ends with the scan marked completed, failed or cancelled."""
     secrets = secrets or {}
     collector = FindingsCollector()
     handler = RequestHandler(target_url, timeout=config["timeout"],
                              max_requests=config["max_requests"], delay=config["delay"],
-                             exclude_patterns=config.get("exclude_paths", []))
+                             exclude_patterns=config.get("exclude_paths", []),
+                             cancel_check=lambda: db.is_cancel_requested(db_path, scan_id))
     modules = config["modules"]
     pages = []
     note = "Finished"
-    with _running_lock:
-        RUNNING_SCANS[scan_id] = handler
 
     def progress(percent, step):
         db.update_progress(db_path, scan_id, percent, step, handler.request_count)
 
     try:
-        # Check the target again right before scanning (DNS could have changed)
-        check_target(target_url)
+        # Check the target again right before scanning (DNS or ownership could have changed)
+        check_target(target_url, user_id=user_id, db_path=db_path)
 
         # ---- Optional login before crawling
         extra_start_urls = []
@@ -201,7 +229,7 @@ def run_scan(db_path, scan_id, target_url, config, secrets=None):
             if name not in modules:
                 continue
             progress(start_percent, label)
-            if handler.cancel_event.is_set():
+            if handler.is_cancelled():
                 break
             try:
                 action()
@@ -213,7 +241,7 @@ def run_scan(db_path, scan_id, target_url, config, secrets=None):
                 break
             start_percent = end_percent
 
-        cancelled = handler.cancel_event.is_set()
+        cancelled = handler.is_cancelled()
         if cancelled:
             note = "Cancelled by the user"
         db.save_findings(db_path, scan_id, collector.sorted_findings())
@@ -233,15 +261,4 @@ def run_scan(db_path, scan_id, target_url, config, secrets=None):
         db.finish_scan(db_path, scan_id, len(pages), handler.request_count,
                        f"Unexpected error: {error}")
     finally:
-        with _running_lock:
-            RUNNING_SCANS.pop(scan_id, None)
         handler.close()
-
-
-def start_scan_in_background(db_path, scan_id, target_url, config, secrets=None):
-    """Run the scan in a separate thread so the web page does not freeze."""
-    thread = threading.Thread(target=run_scan,
-                              args=(db_path, scan_id, target_url, config, secrets),
-                              daemon=True, name=f"scan-{scan_id}")
-    thread.start()
-    return thread
