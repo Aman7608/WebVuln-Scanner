@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Terms of use{% endblock %}
+
+{% block content %}
+<section class="card prose">
+  <h1>Terms of use</h1>
+  <p class="dim">Short and in plain English. By creating an account you agree to these rules.</p>
+
+  <h2>1. Only scan what you own</h2>
+  <p>You may only scan websites that you own or have <strong>written permission</strong> to test.
+     Scanning other websites without permission is illegal in many countries. You must prove
+     ownership of every website (with a file or a DNS record) before you can scan it.</p>
+
+  <h2>2. What the scanner does</h2>
+  <ul>
+    <li>It visits pages and sends test inputs to forms and links (for example a single quote or a harmless HTML tag).</li>
+    <li>It never sends commands meant to delete or change data, but forms are really submitted, so test data such as comments may be created. The "Stored XSS" check is off unless you turn it on.</li>
+    <li>It can make your website slower while it runs. Public limits: up to {{ settings.PUBLIC_MAX_PAGES }} pages and {{ settings.PUBLIC_MAX_REQUESTS }} requests per scan, {{ settings.SCANS_PER_DAY }} scans per day.</li>
+    <li>Results come from an automated tool. They can be wrong or incomplete. Check every finding yourself.</li>
+  </ul>
+
+  <h2>3. Your data</h2>
+  <ul>
+    <li>We store your email, a hash of your password (never the password itself), your websites and your scan results.</li>
+    <li>Passwords you give for scanning a login page are encrypted while the scan waits and deleted when it starts. They are never stored in results or reports.</li>
+    <li>Finished scans are deleted automatically after {{ settings.RETENTION_DAYS }} days. You can delete scans or your whole account at any time under "Account".</li>
+    <li>For security we keep a log of actions such as logins and started scans, with the IP address.</li>
+  </ul>
+
+  <h2>4. Misuse</h2>
+  <p>Accounts used to scan websites without permission, or to attack or overload any system, are deleted.
+     If you think this scanner was used against your website, please
+     <a href="{{ url_for('admin.report_abuse') }}">report it</a>.</p>
+
+  <h2>5. No warranty</h2>
+  <p>This is an educational, open-source project provided "as is", without any warranty.</p>
+</section>
+{% endblock %}

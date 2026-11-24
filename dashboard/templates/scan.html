@@ -12,10 +12,19 @@
 <form id="scan-form" class="card form" novalidate>
   <label class="field">
     <span>Target URL</span>
-    <input type="url" id="target_url" name="target_url" placeholder="http://127.0.0.1:5001/" required autocomplete="off">
-    <small class="dim">Allowed hosts: {% for host in allowed_hosts %}<code>{{ host }}</code>{% if not loop.last %}, {% endif %}{% endfor %}.
-      Change them in <code>config/settings.py</code> or the <code>WEBVULN_ALLOWED_HOSTS</code> variable.</small>
+    <input type="url" id="target_url" name="target_url" placeholder="{{ 'https://' ~ verified_hosts[0] ~ '/' if verified_hosts else ('http://127.0.0.1:5001/' if not public_mode else 'https://your-site.com/') }}" required autocomplete="off">
+    <small class="dim">
+      {% if verified_hosts %}Your verified websites: {% for host in verified_hosts %}<code>{{ host }}</code>{% if not loop.last %}, {% endif %}{% endfor %}.{% endif %}
+      {% if allowed_hosts %}Allowlisted on this computer: {% for host in allowed_hosts %}<code>{{ host }}</code>{% if not loop.last %}, {% endif %}{% endfor %}
+        (<code>config/settings.py</code> or <code>WEBVULN_ALLOWED_HOSTS</code>).{% endif %}
+      {% if public_mode and not verified_hosts %}You have no verified websites yet.{% endif %}
+      <a href="{{ url_for('domains.websites') }}">Add and verify a website</a>
+    </small>
   </label>
+  {% if public_mode %}
+  <p class="dim small-note">Public limits: at most {{ limits.max_pages }} pages and {{ limits.max_requests }} requests per scan,
+    at least {{ defaults.delay }} s between requests, one scan at a time.</p>
+  {% endif %}
 
   <fieldset class="field">
     <legend>Scan modules</legend>

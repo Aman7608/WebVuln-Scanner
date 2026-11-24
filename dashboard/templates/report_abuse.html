@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Report abuse{% endblock %}
+
+{% block content %}
+<section class="card auth-card">
+  <h1>Report abuse</h1>
+  <p class="dim">Do you think this scanner was used against your website without permission? Tell us and we will check our logs.</p>
+  {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+  <form method="post" class="form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label class="field"><span>Your email</span>
+      <input type="email" name="email" value="{{ form.get('email', '') }}" required></label>
+    <label class="field"><span>Your website</span>
+      <input type="text" name="website" value="{{ form.get('website', '') }}" placeholder="example.com" required></label>
+    <label class="field"><span>What happened? (dates, times, our User-Agent "WebVulnScanner")</span>
+      <textarea name="message" required>{{ form.get('message', '') }}</textarea></label>
+    <button type="submit" class="btn">Send report</button>
+  </form>
+</section>
+{% endblock %}

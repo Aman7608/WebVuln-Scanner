@@ -13,11 +13,7 @@ function setupCancelButton(getScanId) {
     button.disabled = true;
     button.textContent = "Cancelling…";
     try {
-      const response = await fetch(`/api/scans/${scanId}/cancel`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: "{}",
-      });
+      const response = await postJson(`/api/scans/${scanId}/cancel`);   // from common.js
       if (!response.ok) {
         const result = await response.json();
         button.textContent = result.error || "Could not cancel";

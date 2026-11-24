@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Account{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Account</h1>
+    <p class="dim">{{ current_user.email }}{% if current_user.is_admin %} · admin{% endif %} · member since {{ current_user.created_at[:10] }}</p>
+  </div>
+</div>
+
+{% if message %}<div class="alert alert-ok">{{ message }}</div>{% endif %}
+{% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+
+<section class="card">
+  <div class="settings-block">
+    <h2>Email notifications</h2>
+    {% if email_enabled %}
+    <form method="post" class="form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="action" value="notifications">
+      <label class="check"><input type="checkbox" name="notify" {{ 'checked' if current_user.notify_by_email }}>
+        Email me when a scan finishes</label>
+      <div><button type="submit" class="btn btn-ghost">Save</button></div>
+    </form>
+    {% else %}
+    <p class="dim">Email is not set up on this server (no SMTP settings), so notifications are off.</p>
+    {% endif %}
+  </div>
+
+  <div class="settings-block">
+    <h2>Change password</h2>
+    <form method="post" class="form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="action" value="password">
+      <div class="grid">
+        <label><span>Current password</span><input type="password" name="current_password" required autocomplete="current-password"></label>
+        <label><span>New password (10+ characters)</span><input type="password" name="new_password" required minlength="10" autocomplete="new-password"></label>
+      </div>
+      <div><button type="submit" class="btn btn-ghost">Change password</button></div>
+    </form>
+  </div>
+</section>
+
+<section class="card danger-zone">
+  <h2>Your data</h2>
+  <p class="dim">{% if public_mode %}Finished scans are deleted automatically after {{ retention_days }} days. {% endif %}You can delete your scans yourself at any time.</p>
+  <form method="post" class="inline-form" data-confirm="Delete ALL your finished scans and their findings?">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="action" value="delete_scans">
+    <button type="submit" class="btn btn-danger btn-inline">Delete all my scans</button>
+  </form>
+
+  <div class="settings-block">
+    <h2>Delete account</h2>
+    <p class="dim">Deletes your account, your websites and all your scans. This cannot be undone.</p>
+    <form method="post" class="form" data-confirm="Really delete your account and all your data?">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="action" value="delete_account">
+      <label class="field"><span>Type your password to confirm</span>
+        <input type="password" name="confirm_password" required autocomplete="current-password"></label>
+      <div><button type="submit" class="btn btn-danger btn-inline">Delete my account</button></div>
+    </form>
+  </div>
+</section>
+
+<section class="card">
+  <details>
+    <summary class="summary-title">Recent activity on your account ({{ activity|length }})</summary>
+    <div class="table-wrap">
+    <table class="table">
+      <thead><tr><th>When</th><th>What</th><th>Detail</th><th>IP address</th></tr></thead>
+      <tbody>
+      {% for event in activity %}
+        <tr><td class="dim">{{ event.created_at }}</td><td>{{ event.action|replace('_', ' ') }}</td>
+            <td class="mono">{{ event.detail }}</td><td class="dim mono">{{ event.ip_address }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+  </details>
+</section>
+{% endblock %}

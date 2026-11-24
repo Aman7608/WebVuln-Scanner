@@ -15,11 +15,16 @@
     <a class="btn btn-ghost" href="{{ url_for('dashboard.json_export', scan_id=scan.id) }}">JSON</a>
     <a class="btn btn-ghost" href="{{ url_for('dashboard.csv_export', scan_id=scan.id) }}">CSV</a>
     <a class="btn" href="{{ url_for('dashboard.pdf_report', scan_id=scan.id) }}">Download PDF</a>
+    <form method="post" action="{{ url_for('dashboard.delete_scan', scan_id=scan.id) }}" class="inline-form"
+          data-confirm="Delete scan #{{ scan.id }} and all its findings? This cannot be undone.">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-danger btn-inline">Delete</button>
+    </form>
   </div>
   {% endif %}
 </div>
 
-{% if scan.status in ('pending', 'running') %}
+{% if scan.status in ('queued', 'running') %}
 <section class="card" id="live-progress" data-scan-id="{{ scan.id }}">
   <h2>Scan in progress</h2>
   <div class="progress"><div class="progress-fill" id="progress-fill" data-progress="{{ scan.progress }}"></div></div>

@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}My websites{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>My websites</h1>
+    <p class="dim">Prove you own a website before scanning it. This stops anyone from scanning sites that are not theirs.</p>
+  </div>
+</div>
+
+{% if allowed_hosts %}
+<div class="alert alert-ok">Local mode: these hosts are allowlisted on this computer and need no verification:
+  {% for host in allowed_hosts %}<code>{{ host }}</code>{% if not loop.last %}, {% endif %}{% endfor %}.</div>
+{% endif %}
+
+<section class="card">
+  <h2>Add a website</h2>
+  {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+  <form method="post" class="form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="code-line">
+      <input type="text" name="host" placeholder="example.com" required autocomplete="off">
+      <button type="submit" class="btn">Add</button>
+    </div>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Your websites</h2>
+  {% for domain in domains %}
+  <div class="domain">
+    <div class="domain-head">
+      <span class="domain-host">{{ domain.host }}</span>
+      <span>
+        {% if domain.verified_at %}
+        <span class="badge-ok">Verified ({{ domain.verify_method }}) {{ domain.verified_at[:10] }}</span>
+        {% else %}
+        <span class="badge-wait">Not verified yet</span>
+        {% endif %}
+        <form method="post" action="{{ url_for('domains.delete', domain_id=domain.id) }}" class="inline-form"
+              data-confirm="Remove {{ domain.host }}? You will have to verify it again to scan it.">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-ghost btn-small">Remove</button>
+        </form>
+      </span>
+    </div>
+
+    {% if not domain.verified_at %}
+    <p class="dim">Do <strong>one</strong> of these, then press "Check now":</p>
+    <ol class="verify-steps">
+      <li><strong>File:</strong> create <code>{{ file_path }}</code> on {{ domain.host }} containing only this code:
+        <div class="code-line"><code>{{ domain.token }}</code>
+          <button type="button" class="btn btn-ghost btn-small" data-copy="{{ domain.token }}">Copy</button></div>
+        <span class="dim">It must open at https://{{ domain.host }}{{ file_path }} (or http://).</span></li>
+      <li><strong>DNS:</strong> add a TXT record named <code>{{ dns_prefix }}{{ domain.host }}</code> with the same code as its value.</li>
+    </ol>
+    <form method="post" action="{{ url_for('domains.verify', domain_id=domain.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn">Check now</button>
+    </form>
+    {% endif %}
+  </div>
+  {% else %}
+  <div class="empty"><p>You have not added any websites yet.</p></div>
+  {% endfor %}
+</section>
+{% endblock %}
