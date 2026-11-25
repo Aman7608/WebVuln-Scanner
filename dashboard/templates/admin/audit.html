@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% from "admin/_tabs.html" import admin_tabs %}
+{% block title %}Admin · Audit log{% endblock %}
+
+{% block content %}
+{{ admin_tabs('admin.audit_log') }}
+
+<section class="card">
+  <div class="card-head">
+    <h2>Audit log ({{ events|length }} events)</h2>
+    <form method="get" class="code-line">
+      <input type="text" name="q" value="{{ search }}" placeholder="Search email, action, IP ..." autocomplete="off">
+      <button type="submit" class="btn btn-ghost btn-small">Search</button>
+      {% if search %}<a class="link" href="{{ url_for('admin.audit_log') }}">Clear</a>{% endif %}
+    </form>
+  </div>
+  <div class="table-wrap"><table class="table">
+    <thead><tr><th>When</th><th>User</th><th>Action</th><th>Detail</th><th>IP</th></tr></thead>
+    <tbody>{% for event in events %}
+      <tr><td class="dim">{{ event.created_at }}</td><td>{{ event.user_email or '-' }}</td>
+          <td>{{ event.action|replace('_', ' ') }}</td><td class="mono">{{ event.detail }}</td>
+          <td class="dim mono">{{ event.ip_address }}</td></tr>
+    {% else %}
+      <tr><td colspan="5" class="dim">No events found.</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+</section>
+{% endblock %}

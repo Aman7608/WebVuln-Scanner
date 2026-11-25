@@ -1,0 +1,63 @@
+# Public deployment of WebVuln Scanner.
+#
+#   caddy  -> HTTPS on ports 80/443 (free Let's Encrypt certificate), forwards to web
+#   web    -> the Flask app on Waitress (python serve.py)
+#   worker -> runs the scans (python worker.py). Scale with:
+#             docker compose up -d --scale worker=3
+#   db     -> PostgreSQL
+#
+# Copy .env.example to .env, fill it in, then:  docker compose up -d --build
+# See DEPLOYMENT.md for the full guide.
+
+x-app: &app
+  build: .
+  env_file: .env
+  environment:
+    WEBVULN_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+  depends_on:
+    db:
+      condition: service_healthy
+  restart: unless-stopped
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  web:
+    <<: *app
+
+  worker:
+    <<: *app
+    command: ["python", "worker.py"]
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "${WEBVULN_HTTP_PORT:-80}:80"
+      - "${WEBVULN_HTTPS_PORT:-443}:443"
+    environment:
+      WEBVULN_DOMAIN: ${WEBVULN_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

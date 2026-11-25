@@ -7,14 +7,6 @@ from scanner.analysis.findings_collector import Finding
 from scanner.engine.scan_engine import build_config, create_scan, run_scan
 from scanner.target_manager import TargetError
 
-
-@pytest.fixture
-def db_path(tmp_path):
-    path = str(tmp_path / "test.db")
-    db.init_db(path)
-    return path
-
-
 def test_store_and_read_scan(db_path):
     target_id = db.get_or_create_target(db_path, "http://localhost/", "localhost")
     assert db.get_or_create_target(db_path, "http://localhost/", "localhost") == target_id
@@ -45,11 +37,38 @@ def test_sql_values_are_parameterized(db_path):
     assert db.list_scans(db_path)[0]["target_url"] == tricky
 
 
-def test_unfinished_scans_marked_failed(db_path):
+def test_scans_of_a_dead_worker_are_marked_failed(db_path):
     target_id = db.get_or_create_target(db_path, "http://localhost/", "localhost")
     scan_id = db.create_scan(db_path, target_id, {})
-    db.mark_unfinished_scans_failed(db_path)
+    assert db.claim_next_scan(db_path) == scan_id          # now "running"
+    db.fail_stale_scans(db_path, minutes=0)
     assert db.get_scan(db_path, scan_id)["status"] == "failed"
+
+
+def test_old_version_database_is_upgraded(tmp_path):
+    """A database made by version 1 (no accounts) still opens and keeps its scans."""
+    import sqlite3
+    path = str(tmp_path / "old.db")
+    old = sqlite3.connect(path)
+    old.executescript("""
+        CREATE TABLE targets (id INTEGER PRIMARY KEY AUTOINCREMENT, url TEXT NOT NULL UNIQUE,
+                              host TEXT NOT NULL, created_at TEXT NOT NULL);
+        CREATE TABLE scans (id INTEGER PRIMARY KEY AUTOINCREMENT, target_id INTEGER NOT NULL,
+            status TEXT NOT NULL, progress INTEGER NOT NULL DEFAULT 0, current_step TEXT DEFAULT '',
+            config_json TEXT NOT NULL, pages_found INTEGER NOT NULL DEFAULT 0,
+            requests_sent INTEGER NOT NULL DEFAULT 0, error_message TEXT DEFAULT '',
+            started_at TEXT NOT NULL, finished_at TEXT);
+        INSERT INTO targets VALUES (1, 'http://127.0.0.1:5001/', '127.0.0.1', '2026-11-20 10:00:00');
+        INSERT INTO scans (target_id, status, config_json, started_at)
+            VALUES (1, 'completed', '{}', '2026-11-20 10:00:00'), (1, 'pending', '{}', '2026-11-20 10:05:00');
+    """)
+    old.close()
+    db.init_db(path)
+    scans = db.list_scans(path)
+    assert [s["status"] for s in scans] == ["failed", "completed"]   # "pending" can never finish
+    user_id = db.create_user(path, "me@example.com", "hash")
+    db.claim_orphan_scans(path, user_id)
+    assert len(db.list_scans(path, user_id=user_id)) == 2
 
 
 def test_build_config_limits_values():

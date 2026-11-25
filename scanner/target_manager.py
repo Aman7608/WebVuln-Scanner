@@ -1,13 +1,21 @@
 """
 Target Manager - decides WHAT the scanner is allowed to scan.
 
-Before any scan starts, the target URL goes through three checks:
+Before any scan starts, the target URL goes through these checks:
   1. Is it a valid http:// or https:// URL?
-  2. Is the host on the allowlist in config/settings.py?
-  3. Does the host point to a private/internal address that is NOT allowlisted?
+  2. Is the scanner allowed to scan this host?
+       local mode:  the host is on the allowlist (config/settings.py), or the
+                    user has verified they own it
+       public mode: the user MUST have verified they own it (see ownership.py)
+  3. Does the host point to an internal address that is not allowed?
+       public mode blocks every private/internal address, always.
 
-During the scan, every request is checked with is_in_scope() so the scanner
-never wanders off to another website (for example by following a redirect).
+During the scan two more checks run on EVERY request:
+  * is_in_scope()            - never wander off to another website
+  * is_connection_allowed()  - used by safe_connection.py right before a
+                               connection is opened, so a domain that suddenly
+                               points to an internal address (DNS rebinding)
+                               is still blocked.
 """
 
 import ipaddress
@@ -62,7 +70,9 @@ def validate_url(url):
 
 
 def is_host_allowlisted(hostname):
-    """Return True if this host is in the ALLOWED_HOSTS list."""
+    """Return True if this host is in the ALLOWED_HOSTS list (local mode only)."""
+    if settings.PUBLIC_MODE:
+        return False
     return hostname.lower() in settings.ALLOWED_HOSTS
 
 
@@ -86,44 +96,70 @@ def is_private_ip(ip_text):
         or ip.is_reserved
         or ip.is_multicast
         or ip.is_unspecified
+        or not ip.is_global
     )
 
 
-def check_target(url):
+def is_connection_allowed(hostname, ip_text):
+    """May the scanner open a connection to this IP for this host name?
+
+    Called right before EVERY connection, after the name was looked up.
+    """
+    if ip_text in ALWAYS_BLOCKED_IPS:
+        return False
+    if not is_private_ip(ip_text):
+        return True
+    if settings.PUBLIC_MODE:
+        return False   # public servers never touch internal addresses
+    # Local mode: an internal address is only OK when BOTH the name and the IP
+    # are allowlisted (for 127.0.0.1 they are the same). So:
+    #  * an allowlisted name that secretly points inside the network is blocked
+    #  * a random name that suddenly points to 127.0.0.1 (DNS rebinding) is blocked
+    hostname = hostname.lower().strip("[]")
+    if hostname == "localhost":
+        return is_host_allowlisted("localhost")
+    return is_host_allowlisted(hostname) and is_host_allowlisted(ip_text)
+
+
+def check_target(url, user_id=None, db_path=None):
     """Run all the checks on a target URL.
 
+    user_id/db_path are needed to look up the user's verified websites.
     Returns a dictionary with the cleaned URL, host and IP addresses.
     Raises TargetError with a friendly message if the target is not allowed.
     """
     cleaned_url = validate_url(url)
     hostname = urlparse(cleaned_url).hostname.lower()
 
-    if not is_host_allowlisted(hostname):
+    verified = False
+    if user_id is not None and db_path is not None:
+        from database import db   # imported here to keep this module easy to test
+        verified = db.is_domain_verified(db_path, user_id, hostname)
+
+    if not verified and not is_host_allowlisted(hostname):
+        if settings.PUBLIC_MODE:
+            raise TargetError(
+                f"You have not verified that you own '{hostname}' yet. Go to 'My websites', "
+                "add the site and prove ownership with a file or a DNS record.")
         raise TargetError(
             f"'{hostname}' is not on the allowlist. Only scan websites you own or "
             "have written permission to test. Add the host to ALLOWED_HOSTS in "
-            "config/settings.py (or the WEBVULN_ALLOWED_HOSTS variable)."
+            "config/settings.py (or the WEBVULN_ALLOWED_HOSTS variable), or verify "
+            "ownership under 'My websites'."
         )
 
     ip_addresses = resolve_host(hostname)
     for ip_text in ip_addresses:
         if ip_text in ALWAYS_BLOCKED_IPS:
             raise TargetError("Cloud metadata addresses can never be scanned.")
-
-    # A host can be on the allowlist and still resolve to an internal address
-    # (for example localhost -> 127.0.0.1). That is fine because the user
-    # allowlisted it on purpose. The private IP check below protects against
-    # an allowlisted *name* that unexpectedly points inside the network,
-    # unless the IP itself is also allowlisted or the name is a local name.
-    local_names = {"localhost"}
-    for ip_text in ip_addresses:
-        if is_private_ip(ip_text):
-            if hostname in local_names or is_host_allowlisted(ip_text) or hostname == ip_text:
-                continue
+        if not is_connection_allowed(hostname, ip_text):
+            if settings.PUBLIC_MODE:
+                raise TargetError(
+                    f"'{hostname}' points to the internal address {ip_text}. "
+                    "The public scanner only scans addresses on the internet.")
             raise TargetError(
                 f"'{hostname}' points to the internal address {ip_text}. "
-                f"Add {ip_text} to the allowlist too if this is really intended."
-            )
+                f"Add {ip_text} to the allowlist too if this is really intended.")
 
     logger.info("Target accepted: %s (%s)", cleaned_url, ", ".join(ip_addresses))
     return {"url": cleaned_url, "host": hostname, "ip_addresses": ip_addresses}

@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 import requests
 
 from config import settings
+from scanner.engine.safe_connection import BlockedAddressError, protect_session
 from scanner.target_manager import is_in_scope
 
 logger = logging.getLogger(__name__)
@@ -34,7 +35,8 @@ class ScanCancelled(RequestLimitReached):
 class RequestHandler:
     def __init__(self, target_url, timeout=settings.DEFAULT_TIMEOUT,
                  max_requests=settings.DEFAULT_MAX_REQUESTS,
-                 delay=settings.DEFAULT_REQUEST_DELAY, exclude_patterns=None):
+                 delay=settings.DEFAULT_REQUEST_DELAY, exclude_patterns=None,
+                 cancel_check=None):
         self.target_url = target_url
         self.timeout = timeout
         self.max_requests = max_requests
@@ -44,12 +46,27 @@ class RequestHandler:
         self.exclude_patterns = [p.lower() for p in (exclude_patterns or [])]
         self.request_count = 0
         self._lock = threading.Lock()
-        # Set by the Cancel button; checked before every request
+        # Set when the user presses Cancel; checked before every request.
+        # cancel_check is a function that asks the database "was Cancel pressed?"
+        # (the Cancel button may be pressed in another process than the worker).
         self.cancel_event = threading.Event()
+        self.cancel_check = cancel_check
+        self._last_cancel_check = 0.0
 
-        # A Session re-uses connections and keeps cookies between requests
-        self.session = requests.Session()
+        # A Session re-uses connections and keeps cookies between requests.
+        # protect_session() adds the SSRF check to every connection it opens.
+        self.session = protect_session(requests.Session())
         self.session.headers.update({"User-Agent": settings.USER_AGENT})
+
+    def is_cancelled(self):
+        """True if Cancel was pressed. Asks the database at most once per second."""
+        if self.cancel_event.is_set():
+            return True
+        if self.cancel_check and time.monotonic() - self._last_cancel_check >= 1.0:
+            self._last_cancel_check = time.monotonic()
+            if self.cancel_check():
+                self.cancel_event.set()
+        return self.cancel_event.is_set()
 
     def is_excluded(self, url):
         """Return True if the URL path or query contains an excluded word."""
@@ -71,7 +88,7 @@ class RequestHandler:
             logger.info("Skipped excluded URL %s", url)
             return None
 
-        if self.cancel_event.is_set():
+        if self.is_cancelled():
             raise ScanCancelled("The scan was cancelled.")
 
         with self._lock:
@@ -96,8 +113,12 @@ class RequestHandler:
             return response
         except requests.exceptions.Timeout:
             logger.warning("Request timed out: %s %s", method, url)
-        except requests.exceptions.ConnectionError:
-            logger.warning("Could not connect: %s %s", method, url)
+        except requests.exceptions.ConnectionError as error:
+            if isinstance(getattr(error.args[0], "reason", None), BlockedAddressError) \
+                    or "Blocked:" in str(error):
+                logger.warning("SSRF protection blocked %s %s", method, url)
+            else:
+                logger.warning("Could not connect: %s %s", method, url)
         except requests.exceptions.RequestException as error:
             logger.warning("Request failed: %s %s (%s)", method, url, error)
         return None

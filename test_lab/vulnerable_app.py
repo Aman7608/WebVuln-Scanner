@@ -374,6 +374,17 @@ def backup():
     return page("Index of /backup", '<pre><a href="site.zip">site.zip</a></pre>')
 
 
+VERIFY_TOKEN = {"value": ""}   # tests put an ownership code here
+
+
+@lab.route("/.well-known/webvuln-verify.txt")
+def ownership_file():
+    # Lets the tests check "prove you own this site" against the lab
+    if not VERIFY_TOKEN["value"]:
+        return Response("not found", status=404)
+    return Response(VERIFY_TOKEN["value"], mimetype="text/plain")
+
+
 @lab.route("/robots.txt")
 def robots():
     return Response("User-agent: *\nDisallow: /backup/\n", mimetype="text/plain")

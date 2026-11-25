@@ -79,11 +79,7 @@ form.addEventListener("submit", async (event) => {
   startButton.disabled = true;
   startButton.textContent = "Starting…";
   try {
-    const response = await fetch("/api/scans", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(values),
-    });
+    const response = await postJson("/api/scans", values);   // from common.js
     const result = await response.json();
     if (!response.ok) {
       showError(result.error || "The scan could not be started.");

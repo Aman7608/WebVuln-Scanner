@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Log in{% endblock %}
+
+{% block content %}
+<section class="card auth-card">
+  <h1>Log in</h1>
+  <p class="dim">Welcome back to WebVuln Scanner.</p>
+  {% if no_users %}
+  <div class="alert alert-ok">No account exists yet. <a href="{{ url_for('accounts.register') }}">Create the first account</a>, which becomes the admin.</div>
+  {% endif %}
+  {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+  <form method="post" class="form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label class="field"><span>Email</span>
+      <input type="email" name="email" value="{{ email }}" required autocomplete="username" autofocus></label>
+    <label class="field"><span>Password</span>
+      <input type="password" name="password" required autocomplete="current-password"></label>
+    <button type="submit" class="btn">Log in</button>
+  </form>
+  {% if can_register %}
+  <p class="auth-links">No account yet? <a href="{{ url_for('accounts.register') }}">Sign up</a></p>
+  {% endif %}
+</section>
+{% endblock %}

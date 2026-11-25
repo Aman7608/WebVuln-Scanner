@@ -109,6 +109,58 @@ every part works."
 
 ---
 
+## 3b. Version 2: making it safe for other people to use
+
+**Q: What did you have to add before strangers could use it?**
+Five things were essential:
+1. accounts, with each user seeing only their own data
+2. **proof of ownership** before scanning
+3. **SSRF protection on every connection**
+4. quotas
+5. HTTPS with a production server
+
+Then, for running at scale, a database job queue with separate workers, PostgreSQL and Docker.
+
+**Q: Why is a checkbox "I am authorized" not enough?**
+On the internet anyone can tick it. So, like professional scanners, users must publish a random code as
+`/.well-known/webvuln-verify.txt` or as a DNS TXT record. Only someone who controls the site or its DNS
+can do that. -> `scanner/ownership.py`
+
+**Q: What is SSRF and how did you stop it?**
+Server-Side Request Forgery means making *my server* send requests to places the attacker can't reach,
+like `127.0.0.1`, the company network or the cloud metadata address `169.254.169.254`. Checking the IP
+once isn't enough because of **DNS rebinding**: the domain can point to a public IP during the check and
+to `127.0.0.1` a second later. So I hook into urllib3's `_new_conn()`. Right before *every* connection I
+resolve the name, check every IP, and connect to exactly the IP I checked. Proxies are ignored, because a
+proxy would make the connection for me and skip the check. -> `scanner/engine/safe_connection.py`
+
+**Q: Why a queue in the database instead of threads?**
+Threads die when the web app restarts, and you can't add more machines. With a queue, scans wait safely
+in the database, and any number of `worker.py` processes take them. One `UPDATE ... WHERE status='queued'
+... RETURNING id` claims a scan, so two workers can never get the same one. PostgreSQL adds `FOR UPDATE
+SKIP LOCKED`.
+
+**Q: The worker needs the target's login password. How do you keep it safe?**
+It's encrypted with Fernet (AES plus a signature) using a key derived from the app secret, stored only
+while the scan waits, and wiped the moment the worker takes it. It never appears in results or reports,
+and a test checks that.
+
+**Q: How do you stop password guessing on your own login page?**
+Failed logins are stored with email and IP. After 5 failures in 15 minutes, even the right password is
+refused until the time passes. Error messages never say whether an email exists.
+
+**Q: What is CSRF and how does your app prevent it?**
+Cross-Site Request Forgery is when another website makes your logged-in browser send a request to my
+app. Every form and every JavaScript POST must include a random token from the user's session, and
+another site can't read it. The cookie is also `SameSite=Lax` and `HttpOnly`, and `Secure` in public
+mode.
+
+**Q: A bug your tests caught in version 2?**
+DNS rebinding in local mode: a random name pointing to `127.0.0.1` was let through because the IP was
+allowlisted. Now *both* the name and the IP must be allowlisted.
+
+---
+
 ## 4. Five-minute live demo
 
 1. Start the lab (`python -m test_lab.vulnerable_app`) and the dashboard (`python app.py`).

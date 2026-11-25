@@ -1,0 +1,15 @@
+# Never copy these into the image
+.git
+.github
+.claude
+venv
+.venv
+instance
+*.db
+.env
+__pycache__
+.pytest_cache
+docs
+# The deliberately vulnerable lab and the tests must never run on a public server
+test_lab
+tests

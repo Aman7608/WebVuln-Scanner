@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Sign up{% endblock %}
+
+{% block content %}
+<section class="card auth-card">
+  <h1>Create an account</h1>
+  {% if first_user %}
+  <p class="dim">This is the first account, so it becomes the <strong>admin</strong> account.</p>
+  {% else %}
+  <p class="dim">Scan websites you own for common security problems.</p>
+  {% endif %}
+  {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+  <form method="post" class="form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label class="field"><span>Email</span>
+      <input type="email" name="email" value="{{ email }}" required autocomplete="username" autofocus></label>
+    <label class="field"><span>Password (at least 10 characters)</span>
+      <input type="password" name="password" required minlength="10" autocomplete="new-password"></label>
+    <label class="field"><span>Password again</span>
+      <input type="password" name="password_again" required minlength="10" autocomplete="new-password"></label>
+    <label class="check authorize">
+      <input type="checkbox" name="accept_terms">
+      I accept the <a href="{{ url_for('admin.terms') }}" target="_blank" rel="noopener">terms of use</a> and will only scan websites I own or may test.
+    </label>
+    <button type="submit" class="btn">Create account</button>
+  </form>
+  <p class="auth-links">Already have an account? <a href="{{ url_for('accounts.login') }}">Log in</a></p>
+</section>
+{% endblock %}

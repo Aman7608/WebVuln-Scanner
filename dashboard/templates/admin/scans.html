@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% from "admin/_tabs.html" import admin_tabs %}
+{% from "_macros.html" import status_badge %}
+{% block title %}Admin · All scans{% endblock %}
+
+{% block content %}
+{{ admin_tabs('admin.scans') }}
+
+<section class="card">
+  <div class="card-head">
+    <h2>All scans ({{ scans|length }}{% if scans|length == 300 %}, newest 300{% endif %})</h2>
+    <div class="filters">
+      <a class="chip {{ 'active' if not current_status }}" href="{{ url_for('admin.scans') }}">All</a>
+      {% for status in statuses %}
+      <a class="chip {{ 'active' if current_status == status }}" href="{{ url_for('admin.scans', status=status) }}">{{ status }}</a>
+      {% endfor %}
+    </div>
+  </div>
+  {% if scans %}
+  <div class="table-wrap"><table class="table">
+    <thead><tr><th>#</th><th>User</th><th>Target</th><th>Started</th><th>Status</th><th>Requests</th><th>Findings</th><th></th></tr></thead>
+    <tbody>{% for scan in scans %}
+      <tr><td class="dim mono">{{ scan.id }}</td><td>{{ scan.user_email or '-' }}</td>
+          <td class="mono">{{ scan.target_url }}</td><td class="dim">{{ scan.started_at }}</td>
+          <td>{{ status_badge(scan.status) }}</td><td>{{ scan.requests_sent }}</td><td>{{ scan.finding_count }}</td>
+          <td><a class="link" href="{{ url_for('dashboard.results', scan_id=scan.id) }}">Open &rarr;</a></td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% else %}
+  <div class="empty"><p>No scans{% if current_status %} with status "{{ current_status }}"{% endif %}.</p></div>
+  {% endif %}
+</section>
+{% endblock %}
